@@ -8,6 +8,7 @@
 #   aur/aur-scanner      - tagged releases (primary)
 #   aur/ks-aur-scanner   - tagged releases (alias)
 #   aur/aur-scanner-git  - rolling, tracks the latest commit
+#   aur/aur-scanner-rc   - opt-in release candidate, builds the signed pre-release tag
 pkgname=aur-scanner
 pkgver=1.0.3
 pkgrel=1

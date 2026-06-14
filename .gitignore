@@ -16,9 +16,14 @@
 Thumbs.db
 
 # Package build artifacts (makepkg scratch + output). These must never be
-# committed into a security tool's source tree.
-**/pkg/
-**/src/
+# committed into a security tool's source tree. Anchor to the directories that
+# actually hold a PKGBUILD (repo root for the dev build, aur/*/ for the AUR
+# packages) -- a non-anchored **/src/ or **/pkg/ would also swallow the crates'
+# own src/ trees (it silently dropped validate.rs + textutil.rs once already).
+/pkg/
+/src/
+aur/*/pkg/
+aur/*/src/
 *.pkg.tar.zst
 *.pkg.tar.xz
 *.tar.gz

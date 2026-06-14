@@ -323,13 +323,24 @@ impl ElfReport {
                     }
                 }
             }
+            // Imports can appear in the dynamic symbol table (.dynsym, the usual
+            // case for a linked binary) or the static one (.symtab, kept in
+            // unstripped/relocatable objects). Check both.
+            let note = |name: &str, r: &mut ElfReport| {
+                if SUSPICIOUS_IMPORTS.contains(&name)
+                    && !r.suspicious_imports.iter().any(|e| e == name)
+                {
+                    r.suspicious_imports.push(name.to_string());
+                }
+            };
             for sym in elf.dynsyms.iter().filter(|s| s.is_import()) {
                 if let Some(n) = elf.dynstrtab.get_at(sym.st_name) {
-                    if SUSPICIOUS_IMPORTS.contains(&n)
-                        && !r.suspicious_imports.iter().any(|e| e == n)
-                    {
-                        r.suspicious_imports.push(n.to_string());
-                    }
+                    note(n, &mut r);
+                }
+            }
+            for sym in elf.syms.iter().filter(|s| s.is_import()) {
+                if let Some(n) = elf.strtab.get_at(sym.st_name) {
+                    note(n, &mut r);
                 }
             }
         }
@@ -609,5 +620,226 @@ mod tests {
         };
         let analyzer = BinaryPayloadAnalyzer::new(Arc::new(IocDatabase::embedded()));
         assert!(analyzer.analyze(&ctx).await.unwrap().is_empty());
+    }
+
+    // ---- ELF builders (deterministic, no toolchain needed) ----
+
+    fn write_ehdr(out: &mut [u8], machine: u16, shoff: usize, shnum: u16, shstrndx: u16) {
+        out[0..4].copy_from_slice(b"\x7fELF");
+        out[4] = 2; // ELFCLASS64
+        out[5] = 1; // little-endian
+        out[6] = 1; // EV_CURRENT
+        out[16..18].copy_from_slice(&1u16.to_le_bytes()); // e_type = ET_REL
+        out[18..20].copy_from_slice(&machine.to_le_bytes());
+        out[20..24].copy_from_slice(&1u32.to_le_bytes()); // e_version
+        out[40..48].copy_from_slice(&(shoff as u64).to_le_bytes()); // e_shoff
+        out[52..54].copy_from_slice(&64u16.to_le_bytes()); // e_ehsize
+        out[58..60].copy_from_slice(&64u16.to_le_bytes()); // e_shentsize
+        out[60..62].copy_from_slice(&shnum.to_le_bytes()); // e_shnum
+        out[62..64].copy_from_slice(&shstrndx.to_le_bytes()); // e_shstrndx
+    }
+
+    fn shdr(
+        name: u32,
+        typ: u32,
+        off: usize,
+        size: usize,
+        link: u32,
+        info: u32,
+        ent: u64,
+    ) -> [u8; 64] {
+        let mut s = [0u8; 64];
+        s[0..4].copy_from_slice(&name.to_le_bytes()); // sh_name
+        s[4..8].copy_from_slice(&typ.to_le_bytes()); // sh_type
+        s[24..32].copy_from_slice(&(off as u64).to_le_bytes()); // sh_offset
+        s[32..40].copy_from_slice(&(size as u64).to_le_bytes()); // sh_size
+        s[40..44].copy_from_slice(&link.to_le_bytes()); // sh_link
+        s[44..48].copy_from_slice(&info.to_le_bytes()); // sh_info
+        s[56..64].copy_from_slice(&ent.to_le_bytes()); // sh_entsize
+        s
+    }
+
+    /// Relocatable ELF64 carrying one global+undefined symbol in `.symtab`
+    /// (an "import" by goblin's definition).
+    fn elf_with_symbol(symname: &str) -> Vec<u8> {
+        let mut strtab = vec![0u8];
+        let name_off = strtab.len() as u32;
+        strtab.extend_from_slice(symname.as_bytes());
+        strtab.push(0);
+
+        let mut symtab = vec![0u8; 24]; // null symbol
+        let mut sym = [0u8; 24];
+        sym[0..4].copy_from_slice(&name_off.to_le_bytes()); // st_name
+        sym[4] = (1 << 4) | 2; // st_info = STB_GLOBAL<<4 | STT_FUNC; st_shndx/value/size = 0
+        symtab.extend_from_slice(&sym);
+
+        let mut shstr = vec![0u8];
+        let n_symtab = shstr.len() as u32;
+        shstr.extend_from_slice(b".symtab\0");
+        let n_strtab = shstr.len() as u32;
+        shstr.extend_from_slice(b".strtab\0");
+        let n_shstr = shstr.len() as u32;
+        shstr.extend_from_slice(b".shstrtab\0");
+
+        let off_symtab = 64;
+        let off_strtab = off_symtab + symtab.len();
+        let off_shstr = off_strtab + strtab.len();
+        let sht = (off_shstr + shstr.len() + 7) & !7;
+
+        let mut out = vec![0u8; sht + 4 * 64];
+        write_ehdr(&mut out, 62 /* EM_X86_64 */, sht, 4, 3);
+        out[off_symtab..off_symtab + symtab.len()].copy_from_slice(&symtab);
+        out[off_strtab..off_strtab + strtab.len()].copy_from_slice(&strtab);
+        out[off_shstr..off_shstr + shstr.len()].copy_from_slice(&shstr);
+        out[sht + 64..sht + 128].copy_from_slice(&shdr(
+            n_symtab,
+            2,
+            off_symtab,
+            symtab.len(),
+            2,
+            1,
+            24,
+        ));
+        out[sht + 128..sht + 192].copy_from_slice(&shdr(
+            n_strtab,
+            3,
+            off_strtab,
+            strtab.len(),
+            0,
+            0,
+            0,
+        ));
+        out[sht + 192..sht + 256].copy_from_slice(&shdr(
+            n_shstr,
+            3,
+            off_shstr,
+            shstr.len(),
+            0,
+            0,
+            0,
+        ));
+        out
+    }
+
+    /// Minimal ELF64 with a single named (empty) section, for section-name checks.
+    fn elf_with_named_section(name: &str) -> Vec<u8> {
+        let mut shstr = vec![0u8];
+        let n_sec = shstr.len() as u32;
+        shstr.extend_from_slice(name.as_bytes());
+        shstr.push(0);
+        let n_shstr = shstr.len() as u32;
+        shstr.extend_from_slice(b".shstrtab\0");
+
+        let off_shstr = 64;
+        let sht = (off_shstr + shstr.len() + 7) & !7;
+
+        let mut out = vec![0u8; sht + 3 * 64];
+        write_ehdr(&mut out, 62, sht, 3, 2);
+        out[off_shstr..off_shstr + shstr.len()].copy_from_slice(&shstr);
+        out[sht + 64..sht + 128]
+            .copy_from_slice(&shdr(n_sec, 1 /* PROGBITS */, 0, 0, 0, 0, 0));
+        out[sht + 128..sht + 192].copy_from_slice(&shdr(
+            n_shstr,
+            3,
+            off_shstr,
+            shstr.len(),
+            0,
+            0,
+            0,
+        ));
+        out
+    }
+
+    // ---- BIN-IMPORT (both ways, through goblin) ----
+
+    #[test]
+    fn ptrace_import_detected_via_symtab() {
+        let report = ElfReport::of(&elf_with_symbol("ptrace"));
+        assert!(report.suspicious_imports.iter().any(|s| s == "ptrace"));
+    }
+
+    #[test]
+    fn benign_symbol_with_same_structure_not_flagged() {
+        // Same ELF layout, benign name -> proves it's the name, not the shape.
+        let report = ElfReport::of(&elf_with_symbol("printf"));
+        assert!(report.suspicious_imports.is_empty());
+    }
+
+    // ---- BIN-EBPF (section-name path + end-to-end) ----
+
+    #[test]
+    fn btf_section_detected_as_ebpf() {
+        let report = ElfReport::of(&elf_with_named_section(".BTF"));
+        assert!(report.is_ebpf);
+    }
+
+    #[tokio::test]
+    async fn ebpf_artifact_flagged_end_to_end() {
+        use crate::parser::{PkgbuildParser, StaticParser};
+        use crate::types::ScanConfig;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("payload.elf"), minimal_bpf_elf()).unwrap();
+        let pkgbuild = StaticParser::new()
+            .parse("pkgname=x-bin\npkgver=1\npkgrel=1\nsource=(\"payload.elf\")\nsha256sums=('SKIP')\n")
+            .unwrap();
+        let ctx = AnalysisContext {
+            pkgbuild,
+            install_script: None,
+            config: ScanConfig::default(),
+            file_path: dir.path().join("PKGBUILD"),
+        };
+        let analyzer = BinaryPayloadAnalyzer::new(Arc::new(IocDatabase::embedded()));
+        let findings = analyzer.analyze(&ctx).await.unwrap();
+        assert!(findings.iter().any(|f| f.id == "BIN-EBPF"));
+    }
+
+    // ---- BIN-PACKED (both ways: section name, high entropy, clean) ----
+
+    #[test]
+    fn upx_section_flagged_as_packed() {
+        let report = ElfReport::of(&elf_with_named_section("UPX1"));
+        assert!(report.packed);
+    }
+
+    #[test]
+    fn high_entropy_elf_flagged_as_packed() {
+        let mut bytes = vec![0u8; 64];
+        write_ehdr(&mut bytes, 62, 0, 0, 0);
+        for _ in 0..64 {
+            bytes.extend(0u8..=255); // uniform -> entropy ~8 bits/byte
+        }
+        let report = ElfReport::of(&bytes);
+        assert!(report.packed && report.entropy > PACKED_ENTROPY);
+    }
+
+    #[test]
+    fn low_entropy_elf_not_packed() {
+        let mut bytes = vec![0u8; 8192]; // mostly zeros
+        write_ehdr(&mut bytes, 62, 0, 0, 0);
+        let report = ElfReport::of(&bytes);
+        assert!(!report.packed, "entropy was {:.2}", report.entropy);
+    }
+
+    // ---- BIN-STRING (embedded C2 domain, both ways) ----
+
+    #[test]
+    fn embedded_c2_domain_flagged() {
+        let mut db = IocDatabase::embedded();
+        db.domains
+            .insert("evil.example".into(), "atomic-arch-2026-06".into());
+        let analyzer = BinaryPayloadAnalyzer {
+            db: Arc::new(db),
+            vt_key: None,
+        };
+
+        let mut hit = elf_with_named_section(".text");
+        hit.extend_from_slice(b"\x00...c2 host: evil.example/beacon...\x00");
+        let f = analyzer.inspect_elf(Path::new("payload.elf"), &hit);
+        assert!(f.iter().any(|x| x.id == "BIN-STRING"));
+
+        // Same binary without the domain -> no BIN-STRING.
+        let clean = elf_with_named_section(".text");
+        let f2 = analyzer.inspect_elf(Path::new("payload.elf"), &clean);
+        assert!(!f2.iter().any(|x| x.id == "BIN-STRING"));
     }
 }

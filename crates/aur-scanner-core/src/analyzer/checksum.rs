@@ -187,6 +187,57 @@ impl SecurityAnalyzer for ChecksumAnalyzer {
             });
         }
 
+        // CHK-008 — a present checksum that is not valid hex of the algorithm's
+        // expected length (md5=32, sha1=40, sha256=64, sha512/b2=128). A
+        // wrong-length or non-hex hash can never match the fetched bytes, so
+        // makepkg's integrity check is silently defeated (whether by tamper or a
+        // copy-paste error). `SKIP` is stored as `None` and is handled by
+        // CHK-004/005, so it is not considered malformed here.
+        let algos: [(&str, usize, &[Option<String>]); 5] = [
+            ("md5", 32, checksums.md5sums.as_slice()),
+            ("sha1", 40, checksums.sha1sums.as_slice()),
+            ("sha256", 64, checksums.sha256sums.as_slice()),
+            ("sha512", 128, checksums.sha512sums.as_slice()),
+            ("b2", 128, checksums.b2sums.as_slice()),
+        ];
+        let mut malformed: Vec<String> = Vec::new();
+        for (algo, len, arr) in algos {
+            for sum in arr.iter().flatten() {
+                let s = sum.trim();
+                if s.eq_ignore_ascii_case("SKIP") {
+                    continue;
+                }
+                if s.len() != len || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    let shown = if s.len() > 12 { &s[..12] } else { s };
+                    malformed.push(format!("{algo}sums has a bad entry '{shown}…' (len {})", s.len()));
+                }
+            }
+        }
+        if !malformed.is_empty() {
+            findings.push(Finding {
+                id: "CHK-008".to_string(),
+                severity: Severity::Medium,
+                category: Category::Cryptography,
+                title: "Malformed or wrong-length checksum".to_string(),
+                description: format!(
+                    "One or more checksums are not valid hex of the expected length, so they \
+                     cannot match the source and integrity verification is effectively disabled: {}.",
+                    malformed.join("; ")
+                ),
+                location: Location {
+                    file: context.file_path.clone(),
+                    line: None,
+                    column: None,
+                    snippet: None,
+                },
+                recommendation: "Regenerate the checksums with updpkgsums; a malformed hash \
+                                 silently disables integrity verification."
+                    .to_string(),
+                cwe_id: Some("CWE-354".to_string()),
+                metadata: serde_json::json!({ "malformed": malformed }),
+            });
+        }
+
         Ok(findings)
     }
 

@@ -211,6 +211,25 @@ pub fn analyzer_codes() -> Vec<CatalogEntry> {
         // -- pattern analyzer (function body) --
         e("FUNC-001", "Network access in a build function", High, NetworkSecurity, "pattern", None,
           "A build/package function performs network access (curl/wget/fetch); downloads belong in the source array.", "Move downloads to the source= array."),
+        // -- metadata analyzer (parsed packaging fields) --
+        e("META-002", "validpgpkeys declared but no signature verified", Low, SuspiciousMetadata, "metadata", Some("CWE-347"),
+          "validpgpkeys= lists signing keys but no source carries a detached signature or ?signed fragment, so the key verifies nothing.", "Verify a signed source against the key, or remove the unused validpgpkeys."),
+        e("META-003", "Replaces/conflicts a core or security package", High, SuspiciousMetadata, "metadata", Some("CWE-1357"),
+          "replaces=/conflicts= forces pacman to displace an official (often security-critical) package with this AUR build.", "Remove unless this is the legitimate provider; report to the AUR maintainers."),
+        e("META-004", "epoch set (forces upgrade over the repo version)", Low, SuspiciousMetadata, "metadata", None,
+          "epoch>=1 makes the package outrank the official version regardless of pkgver; escalates when combined with provides/replaces of a trusted name.", "Confirm the epoch is a real upstream versioning reset, not a stealth supersede."),
+        e("META-005", "install= points outside the package", Medium, SuspiciousMetadata, "metadata", Some("CWE-426"),
+          "install= is not a plain <name>.install file (contains a path, .., or non-.install name).", "Use a plain <pkgname>.install shipped with the PKGBUILD."),
+        e("META-006", "backup= of a security-sensitive file", Medium, SuspiciousMetadata, "metadata", Some("CWE-426"),
+          "backup= lists a security-sensitive path (sudoers/ssh/pam.d/ld.so/etc.), a persistent root-level tamper surface.", "Packages should not own/back up authentication, linker, or privilege files."),
+        e("DEP-001", "Provides a core package name (dependency confusion)", High, SuspiciousMetadata, "metadata", Some("CWE-427"),
+          "provides= a curated core package name from a package that is not that package's own alternate, satisfying a dependency in its place.", "Remove the provides unless this is the legitimate provider."),
+        // -- source analyzer (host-aware metadata) --
+        e("SRC-008", "Source host differs from upstream url host", Low, NetworkSecurity, "source", None,
+          "url= and a source= are both on known forges but different ones (a personal-fork-vs-upstream signal).", "Verify the source forge is the project's official one."),
+        // -- checksum analyzer (hash shape) --
+        e("CHK-008", "Malformed or wrong-length checksum", Medium, Cryptography, "checksum", Some("CWE-354"),
+          "A checksum is not valid hex of the algorithm's expected length (md5=32, sha1=40, sha256=64, sha512/b2=128).", "Regenerate checksums with updpkgsums; a malformed hash silently disables integrity verification."),
     ]
 }
 
@@ -241,10 +260,11 @@ mod tests {
     #[test]
     fn catalog_covers_every_analyzer_emitted_id() {
         const EMITTED: &[&str] = &[
-            "CHK-001", "CHK-002", "CHK-003", "CHK-004", "CHK-005", "CHK-006",
+            "CHK-001", "CHK-002", "CHK-003", "CHK-004", "CHK-005", "CHK-006", "CHK-008",
             "PRIV-001", "PRIV-002", "PRIV-003", "PRIV-004", "PRIV-005", "PRIV-006",
-            "SRC-001", "SRC-002", "SRC-003", "SRC-004", "SRC-005", "SRC-006", "SRC-007",
+            "SRC-001", "SRC-002", "SRC-003", "SRC-004", "SRC-005", "SRC-006", "SRC-007", "SRC-008",
             "IOC-001", "DEEP-001", "DEEP-002", "EXEC-REMOTE", "PROV-001", "FUNC-001",
+            "META-002", "META-003", "META-004", "META-005", "META-006", "DEP-001",
         ];
         let catalog = Catalog::load();
         for id in EMITTED {

@@ -3,6 +3,7 @@
 mod checksum;
 mod deep;
 mod ioc;
+mod metadata;
 mod pattern;
 mod privilege;
 mod remote_exec;
@@ -11,6 +12,7 @@ mod source;
 pub use checksum::ChecksumAnalyzer;
 pub use deep::DeepAnalyzer;
 pub use ioc::IocAnalyzer;
+pub use metadata::MetadataAnalyzer;
 pub use pattern::PatternAnalyzer;
 pub use privilege::PrivilegeAnalyzer;
 pub use remote_exec::RemoteExecAnalyzer;

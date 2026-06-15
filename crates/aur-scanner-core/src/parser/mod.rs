@@ -68,6 +68,10 @@ pub struct ParsedPkgbuild {
     pub backup: Vec<String>,
     /// Package options
     pub options: Vec<String>,
+    /// PGP key fingerprints the package declares as valid signing keys
+    /// (`validpgpkeys=`). Modeled explicitly so the metadata analyzer can flag a
+    /// declared-but-unused key (signature theatre).
+    pub validpgpkeys: Vec<String>,
     /// Custom variables found in the PKGBUILD
     pub variables: HashMap<String, String>,
     /// Functions defined in the PKGBUILD

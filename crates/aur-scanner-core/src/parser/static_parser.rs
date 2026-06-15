@@ -391,6 +391,7 @@ impl StaticParser {
             "replaces" => set(&mut pkgbuild.replaces, elements),
             "backup" => set(&mut pkgbuild.backup, elements),
             "options" => set(&mut pkgbuild.options, elements),
+            "validpgpkeys" => set(&mut pkgbuild.validpgpkeys, elements),
             "source" => {
                 let mut parsed: Vec<SourceEntry> =
                     elements.iter().map(|s| SourceEntry::parse(s)).collect();

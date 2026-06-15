@@ -58,6 +58,7 @@ impl Scanner {
             Arc::new(analyzer::SourceAnalyzer::new()),
             Arc::new(analyzer::ChecksumAnalyzer::new()),
             Arc::new(analyzer::PrivilegeAnalyzer::new()),
+            Arc::new(analyzer::MetadataAnalyzer::new()),
         ];
 
         let parser: Box<dyn PkgbuildParser> = Box::new(parser::StaticParser::new());

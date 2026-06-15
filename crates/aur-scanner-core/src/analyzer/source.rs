@@ -13,6 +13,29 @@ lazy_static! {
     static ref IP_REGEX: Regex = Regex::new(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}").unwrap();
 }
 
+/// Map a host to its forge "identity" (so `github.com` and
+/// `raw.githubusercontent.com` are the same forge, but `gitlab.com` is a
+/// different one). Returns `None` for hosts that are not a recognized code
+/// forge, so a normal project download host never triggers SRC-008.
+fn forge_key(host: &str) -> Option<&'static str> {
+    const FORGES: &[(&str, &str)] = &[
+        ("github.com", "github"),
+        ("githubusercontent.com", "github"),
+        ("github.io", "github"),
+        ("gitlab.com", "gitlab"),
+        ("gitlab.io", "gitlab"),
+        ("codeberg.org", "codeberg"),
+        ("bitbucket.org", "bitbucket"),
+        ("sr.ht", "sourcehut"),
+        ("gitea.com", "gitea"),
+        ("sourceforge.net", "sourceforge"),
+    ];
+    FORGES
+        .iter()
+        .find(|(suffix, _)| host == *suffix || host.ends_with(&format!(".{suffix}")))
+        .map(|(_, key)| *key)
+}
+
 /// Analyzer for source URLs
 pub struct SourceAnalyzer;
 
@@ -265,6 +288,58 @@ impl SecurityAnalyzer for SourceAnalyzer {
                             "protocol": format!("{:?}", source.protocol),
                         }),
                     });
+                }
+            }
+        }
+
+        // SRC-008 — the declared upstream url= and a (non-VCS) source= are on two
+        // DIFFERENT known forges (a personal-fork-vs-upstream signal). Host-aware
+        // via neturl (registrable/forge identity, not substring). Conservative:
+        // only when BOTH hosts resolve to a recognized forge and they disagree, so
+        // a normal `url=project.org` + `source=github.com/releases` does not fire.
+        if let Some(url) = &context.pkgbuild.url {
+            if let Some(url_forge) =
+                crate::neturl::extract_host(url).as_deref().and_then(forge_key)
+            {
+                for source in &context.pkgbuild.source {
+                    if source.is_vcs() {
+                        continue;
+                    }
+                    let src_forge = crate::neturl::extract_host(&source.url)
+                        .as_deref()
+                        .and_then(forge_key);
+                    if let Some(sf) = src_forge {
+                        if sf != url_forge {
+                            findings.push(Finding {
+                                id: "SRC-008".to_string(),
+                                severity: Severity::Low,
+                                category: Category::NetworkSecurity,
+                                title: "Source host differs from upstream url host".to_string(),
+                                description: format!(
+                                    "url= is on the {url_forge} forge but a source is on {sf}. \
+                                     A source hosted on a different forge than the stated \
+                                     upstream can be a personal fork swapped in for the real \
+                                     project."
+                                ),
+                                location: Location {
+                                    file: context.file_path.clone(),
+                                    line: None,
+                                    column: None,
+                                    snippet: Some(format!("url={url}  source={}", source.url)),
+                                },
+                                recommendation:
+                                    "Verify the source forge is the project's official one."
+                                        .to_string(),
+                                cwe_id: None,
+                                metadata: serde_json::json!({
+                                    "url_forge": url_forge,
+                                    "source_forge": sf,
+                                    "source": source.url,
+                                }),
+                            });
+                            break;
+                        }
+                    }
                 }
             }
         }

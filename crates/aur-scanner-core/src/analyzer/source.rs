@@ -395,9 +395,11 @@ source=("https://pastebin.com/raw/abc123")
         assert!(!fires("git+https://git.sr.ht/~u/r").await);
 
         // UNTRUSTED via the substring-bypass class -> SRC-006 MUST fire:
-        // left-extended host, userinfo confusion, and a genuinely untrusted host.
+        // left-extended host, userinfo confusion, the backslash parser-differential
+        // (F1), and a genuinely untrusted host.
         assert!(fires("git+https://github.com.evil.tld/u/r.git").await);
         assert!(fires("git+https://github.com@evil.tld/u/r.git").await);
+        assert!(fires(r"git+https://github.com\@evil.tld/u/r.git").await);
         assert!(fires("git+https://evil.example/u/r.git").await);
     }
 }

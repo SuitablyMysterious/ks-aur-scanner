@@ -33,6 +33,10 @@ static HOST_SPAN: LazyLock<Regex> = LazyLock::new(|| {
         (?: [^\s/@'\x22]+ @ )?                  # optional userinfo@
         ( [a-z0-9] (?:[a-z0-9\-]*[a-z0-9])?     # host: first label
           (?: \. [a-z0-9] (?:[a-z0-9\-]*[a-z0-9])? )+ )  # >=1 more labels
+        (?: : \d+ )?                            # optional :port
+        (?: [/?\#] [^\s'\x22]* )?               # consume the path/query/fragment so
+                                                # a dotted PATH segment (…/evil.example)
+                                                # is NOT re-read as a host (F2)
         ",
     )
     .unwrap()
@@ -85,6 +89,13 @@ fn strip_vcs_prefix(s: &str) -> &str {
     s
 }
 
+/// The authority span of a URL-ish string: the text after `://` (or the whole
+/// string when scheme-less), up to the first `/`, `?`, or `#`.
+fn authority_span(s: &str) -> &str {
+    let after_scheme = s.split_once("://").map_or(s, |(_, rest)| rest);
+    after_scheme.split(['/', '?', '#']).next().unwrap_or(after_scheme)
+}
+
 /// Extract the host of a single URL-ish string (refanged, VCS-prefix stripped,
 /// fragment dropped). Returns the normalized host, or `None` when there is no
 /// parseable host. Tolerant of scheme-less hosts (`evil.example/x`).
@@ -92,6 +103,17 @@ pub fn extract_host(raw: &str) -> Option<String> {
     let refanged = refang(raw);
     let s = strip_vcs_prefix(refanged.trim());
     let s = s.split('#').next().unwrap_or(s);
+
+    // Fail CLOSED on a backslash in the authority. The WHATWG `url` crate rewrites
+    // `\`->`/`, so `https://github.com\@evil.tld/r` parses to host `github.com`,
+    // but git/curl (RFC-3986) treat `github.com\` as userinfo and fetch
+    // `evil.tld` -> a parser-differential trusted-host bypass (sibling of the
+    // `github.com.evil.tld` / `github.com@evil.tld` class). Refuse to assert a
+    // host the fetchers and the parser disagree about; the caller treats `None`
+    // as untrusted/unknown and flags it.
+    if authority_span(s).contains('\\') {
+        return None;
+    }
 
     if let Ok(u) = Url::parse(s) {
         if let Some(h) = u.host_str() {
@@ -190,6 +212,27 @@ mod tests {
         assert_eq!(refang("hxxps://evil[.]example"), "https://evil.example");
         assert_eq!(refang("evil(dot)example"), "evil.example");
         assert_eq!(extract_host("hxxp://evil[.]example/x"), Some("evil.example".into()));
+    }
+
+    #[test]
+    fn extract_host_fails_closed_on_backslash_authority() {
+        // F1 (Echo review): the `url` crate rewrites `\`->`/` so it parses
+        // host=github.com, but git/curl fetch evil.tld. Refuse to assert a host
+        // -> caller treats None as untrusted and flags it.
+        assert_eq!(extract_host(r"git+https://github.com\@evil.tld/r.git"), None);
+        assert_eq!(extract_host(r"https://github.com\.evil.tld/x"), None);
+        // a backslash only in the PATH is not an authority differential -> host ok
+        assert_eq!(extract_host(r"https://github.com/u\r"), Some("github.com".into()));
+    }
+
+    #[test]
+    fn extract_hosts_does_not_treat_path_segments_as_hosts() {
+        // F2 (Echo review): a dotted token in the URL path is not the host.
+        let hosts = extract_hosts("https://github.com/u/evil.example");
+        assert_eq!(hosts, vec!["github.com".to_string()]);
+        assert!(!line_has_host("https://github.com/u/evil.example", "evil.example"));
+        // but a real subdomain host still matches
+        assert!(line_has_host("https://evil.example/u/github.com", "evil.example"));
     }
 
     #[test]

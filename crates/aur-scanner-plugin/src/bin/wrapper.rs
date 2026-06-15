@@ -397,4 +397,33 @@ mod tests {
         assert!(scanned(&["-Qi", "firefox"]).is_none());
         assert!(scanned(&["-R", "firefox"]).is_none());
     }
+
+    #[test]
+    fn upgrade_with_operands_is_scanned_but_refresh_only_is_not() {
+        // `-Syu pkg` installs pkg (scan it); `-Sy`/`-Syu` alone only refreshes.
+        assert_eq!(scanned(&["-Syu", "pkg"]), Some(vec!["pkg".into()]));
+        assert!(scanned(&["-Sy"]).is_none());
+        assert!(scanned(&["-Syyuu"]).is_none());
+    }
+
+    #[test]
+    fn multiple_operands_all_scanned() {
+        assert_eq!(
+            scanned(&["-S", "a", "b", "c"]),
+            Some(vec!["a".into(), "b".into(), "c".into()])
+        );
+    }
+
+    // --- fail-closed confirmation prompts (the security-critical contract) ---
+    // In non-interactive mode (pipe/cron/CI: no TTY to answer), every override
+    // prompt MUST refuse. An unattended run can never be talked into proceeding.
+    #[test]
+    fn confirm_typed_yes_refuses_when_non_interactive() {
+        assert!(!confirm_typed_yes(false, "continue?").unwrap());
+    }
+
+    #[test]
+    fn confirm_default_no_refuses_when_non_interactive() {
+        assert!(!confirm_default_no(false, "continue?").unwrap());
+    }
 }

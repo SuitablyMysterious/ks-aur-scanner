@@ -249,3 +249,20 @@ fn drop_privileges_to_invoking_user() -> Option<String> {
 fn drop_privileges_to_invoking_user() -> Option<String> {
     std::env::var("USER").ok().filter(|u| !u.is_empty())
 }
+
+#[cfg(test)]
+mod tests {
+    use aur_scanner_core::validate::is_valid_package_name;
+
+    // The hook turns the pacman-supplied target (and SUDO_USER) into filesystem
+    // path components, so it must reject anything that isn't a clean identifier.
+    #[test]
+    fn hook_rejects_path_traversal_and_injection_targets() {
+        for bad in ["../etc/passwd", "a/b", "..", "a;rm -rf /", "a b", "a$(id)", ""] {
+            assert!(!is_valid_package_name(bad), "must reject {bad:?}");
+        }
+        for good in ["firefox", "aur-scanner-git", "lib32-foo", "python-requests"] {
+            assert!(is_valid_package_name(good), "must accept {good}");
+        }
+    }
+}

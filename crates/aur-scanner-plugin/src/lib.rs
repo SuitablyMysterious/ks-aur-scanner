@@ -159,3 +159,73 @@ fn read_response(prompt: &str) -> io::Result<String> {
     }
     Ok(response)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aur_scanner_core::types::{Category, Finding, Location, ScanResult};
+    use std::path::PathBuf;
+
+    fn result_with(sev: Option<Severity>) -> ScanResult {
+        let findings = sev
+            .map(|s| {
+                vec![Finding {
+                    id: "TST-001".into(),
+                    severity: s,
+                    category: Category::MaliciousCode,
+                    title: "test".into(),
+                    description: "test finding".into(),
+                    location: Location {
+                        file: PathBuf::from("PKGBUILD"),
+                        line: Some(1),
+                        column: None,
+                        snippet: None,
+                    },
+                    recommendation: "review".into(),
+                    cwe_id: None,
+                    metadata: serde_json::Value::Null,
+                }]
+            })
+            .unwrap_or_default();
+        ScanResult {
+            package_name: "p".into(),
+            package_version: "1-1".into(),
+            findings,
+            scanned_files: vec![],
+            timestamp: chrono::Utc::now(),
+            scan_duration_ms: 0,
+        }
+    }
+
+    fn plugin(interactive: bool) -> AurScannerPlugin {
+        let mut p = AurScannerPlugin::with_defaults().expect("plugin");
+        p.set_interactive(interactive);
+        p
+    }
+
+    // The core security contract: with no human to confirm an override, anything
+    // at or above High must DENY (return false), never proceed.
+    #[test]
+    fn non_interactive_denies_critical() {
+        assert!(!plugin(false).handle_results(&result_with(Some(Severity::Critical))));
+    }
+
+    #[test]
+    fn non_interactive_denies_high() {
+        assert!(!plugin(false).handle_results(&result_with(Some(Severity::High))));
+    }
+
+    // Below the gate (medium/low/info) there is no threshold to refuse, so a
+    // non-interactive run proceeds rather than blocking every package forever.
+    #[test]
+    fn non_interactive_allows_medium_and_below() {
+        assert!(plugin(false).handle_results(&result_with(Some(Severity::Medium))));
+        assert!(plugin(false).handle_results(&result_with(Some(Severity::Low))));
+        assert!(plugin(false).handle_results(&result_with(Some(Severity::Info))));
+    }
+
+    #[test]
+    fn clean_result_proceeds() {
+        assert!(plugin(false).handle_results(&result_with(None)));
+    }
+}

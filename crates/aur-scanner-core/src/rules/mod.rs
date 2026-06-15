@@ -5,7 +5,7 @@ mod loader;
 pub use loader::RuleLoader;
 
 use crate::error::Result;
-use crate::textutil::logical_lines;
+use crate::textutil::{deobfuscate, logical_lines, QUOTE_SPLIT_PATTERN};
 use crate::types::{Category, FileType, Severity};
 use regex::{Regex, RegexBuilder};
 use serde::Deserialize;
@@ -264,6 +264,12 @@ impl RuleEngine {
         // carries the originating physical line number for reporting.
         let lines: Vec<(usize, String)> = logical_lines(content);
         let line_strs: Vec<&str> = lines.iter().map(|(_, s)| s.as_str()).collect();
+        // De-obfuscated variant per line: ANSI-C quoting (`$'\x63'`) decoded and
+        // adjacent-quote word-splitting (`"b"'u''n'`) collapsed, so a payload
+        // hidden to dodge literal matching is still seen by every rule (e.g. an
+        // obfuscated `bun add` fires ATOMIC-002). `None` for un-obfuscated lines,
+        // so ordinary quoted strings are not re-matched.
+        let deobf: Vec<Option<String>> = lines.iter().map(|(_, s)| deobfuscate(s)).collect();
         // Lines that are informational text printed to the user (the body of a
         // pure-printer heredoc, e.g. a `cat <<EOF` post_install message) are not
         // executed, so low-risk path-presence rules must not match them. A
@@ -291,6 +297,17 @@ impl RuleEngine {
                             matched_text: m.1,
                             context: line.clone(),
                         });
+                    } else if let Some(decoded) = &deobf[idx] {
+                        // Raw line didn't match, but its de-obfuscated form might.
+                        if let Some(m) = self.match_pattern(pattern, decoded, &compiled.rule) {
+                            matches.push(RuleMatch {
+                                rule_id: compiled.rule.id.clone(),
+                                line: *phys_line,
+                                column: m.0,
+                                matched_text: m.1,
+                                context: format!("{line}    [de-obfuscated → {decoded}]"),
+                            });
+                        }
                     }
                 }
             }
@@ -1211,6 +1228,26 @@ pub fn get_builtin_rules() -> Vec<Rule> {
             file_types: vec![FileType::Pkgbuild, FileType::InstallScript],
             recommendation: "Decompress and review content before execution".to_string(),
             cwe_id: Some("CWE-94".to_string()),
+            enabled: true,
+        },
+        Rule {
+            id: "OBF-006".to_string(),
+            name: "Quote-splitting / character obfuscation".to_string(),
+            description:
+                "A command is assembled from adjacent single-character quoted fragments \
+                 (e.g. \"b\"'u''n') or ANSI-C escapes to hide it from literal matching. \
+                 This is almost exclusively a malware evasion technique; aur-scan also \
+                 reports the decoded command via its other rules."
+                    .to_string(),
+            severity: Severity::High,
+            category: Category::Obfuscation,
+            patterns: vec![Pattern::Regex {
+                pattern: QUOTE_SPLIT_PATTERN.to_string(),
+            }],
+            file_types: vec![FileType::Pkgbuild, FileType::InstallScript],
+            recommendation:
+                "De-obfuscate the command and review what it actually runs.".to_string(),
+            cwe_id: Some("CWE-506".to_string()),
             enabled: true,
         },
 

@@ -144,9 +144,182 @@ impl BraceScanner {
     }
 }
 
+/// Decode one ANSI-C (`$'...'`) backslash escape. `rest` is the text *after* the
+/// backslash. Returns the decoded character(s) and how many chars of `rest` were
+/// consumed. Mirrors bash `$'...'`: `\xHH` (1-2 hex), `\NNN`/`\0NNN` (1-3 octal),
+/// and the usual `\n \t \r \a \b \e \f \v \\ \' \" \?` controls.
+fn decode_ansic_escape(rest: &[char]) -> (String, usize) {
+    if rest.is_empty() {
+        return (String::from("\\"), 0);
+    }
+    match rest[0] {
+        'x' => {
+            // up to two hex digits
+            let hex: String = rest[1..].iter().take(2).take_while(|c| c.is_ascii_hexdigit()).collect();
+            if hex.is_empty() {
+                return (String::from("x"), 1);
+            }
+            let val = u32::from_str_radix(&hex, 16).unwrap_or(0);
+            (char_from(val), 1 + hex.len())
+        }
+        '0'..='7' => {
+            // up to three octal digits (the first digit is rest[0])
+            let oct: String = rest.iter().take(3).take_while(|c| c.is_digit(8)).collect();
+            let val = u32::from_str_radix(&oct, 8).unwrap_or(0);
+            (char_from(val), oct.len())
+        }
+        'n' => ("\n".into(), 1),
+        't' => ("\t".into(), 1),
+        'r' => ("\r".into(), 1),
+        'a' => ("\u{07}".into(), 1),
+        'b' => ("\u{08}".into(), 1),
+        'e' | 'E' => ("\u{1b}".into(), 1),
+        'f' => ("\u{0c}".into(), 1),
+        'v' => ("\u{0b}".into(), 1),
+        '\\' => ("\\".into(), 1),
+        '\'' => ("'".into(), 1),
+        '"' => ("\"".into(), 1),
+        '?' => ("?".into(), 1),
+        c => (c.to_string(), 1),
+    }
+}
+
+fn char_from(val: u32) -> String {
+    char::from_u32(val).map(|c| c.to_string()).unwrap_or_default()
+}
+
+/// Re-render a shell word the way the shell would, with the quoting *removed*:
+/// `$'...'` ANSI-C escapes are decoded, single/double quotes are dropped, and
+/// adjacent quoted segments concatenate. So `"b"'u''n'` -> `bun` and
+/// `$'\x63'"d"` -> `cd`. Unquoted whitespace (the real word boundaries) and any
+/// `$(...)`/`${...}` expansions are preserved so detectors still see the command
+/// structure. This is a normalization for *matching*, not a faithful evaluator.
+pub fn normalize_shell_quoting(line: &str) -> String {
+    let chars: Vec<char> = line.chars().collect();
+    let mut out = String::with_capacity(line.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '$' && i + 1 < chars.len() && chars[i + 1] == '\'' {
+            // ANSI-C quoting: decode until the closing single quote.
+            i += 2;
+            while i < chars.len() && chars[i] != '\'' {
+                if chars[i] == '\\' {
+                    let (decoded, used) = decode_ansic_escape(&chars[i + 1..]);
+                    out.push_str(&decoded);
+                    i += 1 + used;
+                } else {
+                    out.push(chars[i]);
+                    i += 1;
+                }
+            }
+            i += 1; // closing quote
+        } else if c == '\'' {
+            i += 1;
+            while i < chars.len() && chars[i] != '\'' {
+                out.push(chars[i]);
+                i += 1;
+            }
+            i += 1;
+        } else if c == '"' {
+            i += 1;
+            while i < chars.len() && chars[i] != '"' {
+                if chars[i] == '\\'
+                    && i + 1 < chars.len()
+                    && matches!(chars[i + 1], '$' | '`' | '"' | '\\')
+                {
+                    out.push(chars[i + 1]);
+                    i += 2;
+                } else {
+                    out.push(chars[i]);
+                    i += 1;
+                }
+            }
+            i += 1;
+        } else if c == '\\' && i + 1 < chars.len() {
+            out.push(chars[i + 1]);
+            i += 2;
+        } else {
+            out.push(c);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// True when a line carries hallmarks of character-level obfuscation: ANSI-C
+/// hex/octal escapes (`$'\x63'`, `$'\141'`) or adjacent single-character quoted
+/// segments used to split a word (`"b"'u''n'`). Legitimate PKGBUILDs/install
+/// scripts effectively never do this; malware uses it to dodge literal matching.
+pub fn looks_obfuscated(line: &str) -> bool {
+    ANSIC_ESCAPE.is_match(line) || QUOTE_SPLIT.is_match(line)
+}
+
+/// If `line` looks obfuscated, return its de-obfuscated form (when that actually
+/// differs); otherwise `None`. Detectors match this in *addition* to the raw line
+/// so an evaded payload is still seen, without re-matching every ordinary quoted
+/// string in the file.
+pub fn deobfuscate(line: &str) -> Option<String> {
+    if !looks_obfuscated(line) {
+        return None;
+    }
+    let norm = normalize_shell_quoting(line);
+    (norm != line).then_some(norm)
+}
+
+use regex::Regex;
+use std::sync::LazyLock;
+/// ANSI-C hex/octal escape inside `$'...'`.
+static ANSIC_ESCAPE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\$'[^']*\\(?:x[0-9A-Fa-f]{1,2}|[0-7]{1,3})").unwrap());
+/// Two or more adjacent single-character quoted segments (the `"b"'u''n'` split).
+static QUOTE_SPLIT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?:["'][A-Za-z0-9]["']){2,}"#).unwrap());
+
+/// The detection-rule regex for the quote-splitting obfuscation technique itself
+/// (`OBF-006`). Exposed so the rule and the heuristic stay in sync.
+pub const QUOTE_SPLIT_PATTERN: &str = r#"(["'][A-Za-z0-9]["']){2,}"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deobfuscates_ansic_and_quote_splitting() {
+        // The real AUR sample: cd /tmp && bun add ansi-colors-nextfile-js
+        let line = r#"$'\x63'"d" "/"'t'"m"'p' && "b"'u''n' 'a''d''d' $'\141\x6e''s'"i"-'c''o''l''o''r'$'\x73'"#;
+        let d = deobfuscate(line).expect("should be flagged obfuscated");
+        assert!(d.contains("cd /tmp"), "got: {d}");
+        assert!(d.contains("bun add"), "got: {d}");
+        assert!(d.contains("ansi-colors"), "got: {d}");
+    }
+
+    #[test]
+    fn pure_quote_split_without_hex_is_caught() {
+        // No \x at all — only word-splitting. OBF-003 would miss this entirely.
+        let line = r#""b"'u''n' 'i''n''s''t''a''l''l' evilpkg"#;
+        assert!(looks_obfuscated(line));
+        assert!(deobfuscate(line).unwrap().contains("bun install"));
+    }
+
+    #[test]
+    fn ordinary_quoted_strings_are_not_flagged() {
+        for ok in [
+            r#"echo "hello world""#,
+            r#"install -Dm755 "foo" "$pkgdir/usr/bin/foo""#,
+            r#"msg "see ~/.config/app for flags""#,
+            r#"cd "$srcdir/pkg-$pkgver""#,
+        ] {
+            assert!(!looks_obfuscated(ok), "false positive on: {ok}");
+            assert!(deobfuscate(ok).is_none(), "should not de-obfuscate: {ok}");
+        }
+    }
+
+    #[test]
+    fn octal_and_hex_escapes_decode() {
+        assert_eq!(normalize_shell_quoting(r"$'\141\x6e'"), "an"); // \141=a, \x6e=n
+        assert_eq!(normalize_shell_quoting(r#"$'\x63'"d""#), "cd");
+    }
 
     #[test]
     fn brace_scanner_ignores_quoted_braces() {

@@ -72,6 +72,89 @@ fn consent_gate(noconfirm: bool, stdin_is_terminal: bool) -> ConsentGate {
     }
 }
 
+/// What the scan gate decided about building. Pure so the fail-closed invariant
+/// (audit ME-8) is unit-testable.
+#[derive(Debug, PartialEq, Eq)]
+enum GateOutcome {
+    /// One or more packages could not be fetched/scanned at all. This is a HARD
+    /// stop: `--force` is for findings the user has actually seen, and must NEVER
+    /// wave through a package that was never analyzed.
+    BlockUnscannable,
+    /// Findings at/above the threshold and no `--force`: blocked.
+    BlockFindings,
+    /// Findings at/above the threshold, but `--force` was given: proceed, having
+    /// shown the user the findings they are overriding.
+    ForceOverride,
+    /// No blocking findings: proceed.
+    Pass,
+}
+
+/// Decide the gate outcome (audit ME-8). The ordering is the invariant: an
+/// unscannable package blocks BEFORE the `--force`-overridable findings gate is
+/// even consulted, so `--force` can never silently build a package that was
+/// never reviewed.
+fn gate_outcome(has_unscannable: bool, gate_tripped: bool, force: bool) -> GateOutcome {
+    if has_unscannable {
+        GateOutcome::BlockUnscannable
+    } else if gate_tripped {
+        if force {
+            GateOutcome::ForceOverride
+        } else {
+            GateOutcome::BlockFindings
+        }
+    } else {
+        GateOutcome::Pass
+    }
+}
+
+/// Build a sanitized environment for the `makepkg` invocation (audit ME-4).
+///
+/// A clean scan can be undone at *build* time by a poisoned environment: a
+/// hostile `PATH` pointing `gpg`/`git`/`sed`/`sudo` at attacker binaries, a
+/// `GNUPGHOME` of attacker keys that makes signature checks pass, a `BUILDDIR`/
+/// `PKGDEST` redirect, or `GIT_SSL_NO_VERIFY`/`GIT_SSH`. So we do NOT inherit the
+/// ambient environment for the build: start from empty, force a known-good
+/// `PATH`, and pass through only an allowlist of variables makepkg legitimately
+/// needs and that are not a vector for redirecting a trusted helper.
+///
+/// Build-control and redirect variables (`GNUPGHOME`, `BUILDDIR`, `PKGDEST`,
+/// `SRCDEST`, `GIT_*`, `LD_*`, …) are deliberately dropped: makepkg falls back to
+/// `/etc/makepkg.conf` + the user's real `$HOME/.gnupg`, which is what a from-a-
+/// clean-scan build must use.
+fn sanitized_build_env<I>(ambient: I) -> Vec<(String, String)>
+where
+    I: IntoIterator<Item = (String, String)>,
+{
+    /// Variables passed through unchanged: locale/UX and build parallelism, none
+    /// of which can redirect a trusted helper binary.
+    const ALLOW: &[&str] = &[
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "TERM",
+        "TZ",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "LC_MESSAGES",
+        "LC_COLLATE",
+        "LC_NUMERIC",
+        "LC_TIME",
+        "MAKEFLAGS",
+        "PACKAGER",
+    ];
+    /// Known-good search path so a poisoned ambient `PATH` cannot point makepkg's
+    /// helpers at attacker-controlled binaries. `.`/cwd is never on it.
+    const SAFE_PATH: &str = "/usr/bin:/bin:/usr/local/bin";
+
+    let mut env: Vec<(String, String)> = ambient
+        .into_iter()
+        .filter(|(k, _)| ALLOW.contains(&k.as_str()))
+        .collect();
+    env.push(("PATH".to_string(), SAFE_PATH.to_string()));
+    env
+}
+
 pub async fn run(args: InstallArgs) -> Result<()> {
     if args.package_names.is_empty() {
         anyhow::bail!("no packages specified");
@@ -198,33 +281,43 @@ pub async fn run(args: InstallArgs) -> Result<()> {
         println!("{} SBOM written to {}", "SBOM:".green().bold(), path.display());
     }
 
-    // 4. Gate.
+    // 4. Gate (audit ME-8: --force can override reviewed findings, but NEVER an
+    //    unscannable/never-reviewed package).
     println!();
-    // Unscannable packages were never reviewed; building them blind defeats the
-    // tool. This is a hard stop that --force cannot override -- override is only
-    // for findings the user has actually seen.
-    if !unscannable.is_empty() {
-        println!(
-            "{} could not fetch/scan (unreviewed): {}",
-            "GATE:".red().bold(),
-            unscannable.join(", ")
-        );
-        anyhow::bail!(
-            "refusing to build {} unreviewed package(s); --force cannot override unscannable packages",
-            unscannable.len()
-        );
-    }
-    if gate_tripped {
-        println!(
-            "{}",
-            "GATE: findings at or above the threshold.".red().bold()
-        );
-        if !args.force {
-            anyhow::bail!("blocked by scan gate; not building (use --force to override deliberately)");
+    match gate_outcome(!unscannable.is_empty(), gate_tripped, args.force) {
+        GateOutcome::BlockUnscannable => {
+            println!(
+                "{} could not fetch/scan (unreviewed): {}",
+                "GATE:".red().bold(),
+                unscannable.join(", ")
+            );
+            anyhow::bail!(
+                "refusing to build {} unreviewed package(s); --force cannot override unscannable packages",
+                unscannable.len()
+            );
         }
-        println!("{}", "--force given: overriding findings gate.".yellow().bold());
-    } else {
-        println!("{}", "GATE: passed -- no blocking findings.".green().bold());
+        GateOutcome::BlockFindings => {
+            println!(
+                "{}",
+                "GATE: findings at or above the threshold.".red().bold()
+            );
+            anyhow::bail!(
+                "blocked by scan gate; not building (use --force to override deliberately)"
+            );
+        }
+        GateOutcome::ForceOverride => {
+            println!(
+                "{}",
+                "GATE: findings at or above the threshold.".red().bold()
+            );
+            println!(
+                "{}",
+                "--force given: overriding findings gate.".yellow().bold()
+            );
+        }
+        GateOutcome::Pass => {
+            println!("{}", "GATE: passed -- no blocking findings.".green().bold());
+        }
     }
 
     // 5. Confirm, then build in dependency order from the SAME directories.
@@ -291,6 +384,13 @@ pub async fn run(args: InstallArgs) -> Result<()> {
             .unwrap_or("makepkg");
         let mut cmd = tokio::process::Command::new(makepkg_bin);
         cmd.arg("-si").current_dir(&dir);
+        // Sanitize the build environment (audit ME-4): do not let a poisoned
+        // ambient PATH/GNUPGHOME/GIT_*/BUILDDIR undo the clean scan by redirecting
+        // makepkg's trusted helpers. Start empty and apply only the allowlist.
+        cmd.env_clear();
+        for (k, v) in sanitized_build_env(std::env::vars()) {
+            cmd.env(k, v);
+        }
         if args.noconfirm {
             cmd.arg("--noconfirm");
         }
@@ -358,5 +458,96 @@ mod tests {
         // The regression for defect #11: a pipe/CI/cron stdin with no
         // --noconfirm must abort, never silently accept a piped "y".
         assert_eq!(consent_gate(false, false), ConsentGate::AbortNonInteractive);
+    }
+
+    // --- gate: --force never overrides an unscannable package (audit ME-8) ----
+
+    #[test]
+    fn force_cannot_override_unscannable() {
+        // The invariant: a never-reviewed package is a hard stop regardless of
+        // --force, and regardless of whether the findings gate also tripped.
+        assert_eq!(
+            gate_outcome(true, false, false),
+            GateOutcome::BlockUnscannable
+        );
+        assert_eq!(
+            gate_outcome(true, false, true),
+            GateOutcome::BlockUnscannable
+        );
+        assert_eq!(
+            gate_outcome(true, true, true),
+            GateOutcome::BlockUnscannable
+        );
+    }
+
+    #[test]
+    fn force_overrides_only_reviewed_findings() {
+        // Findings the user has seen: blocked without --force, overridable with.
+        assert_eq!(gate_outcome(false, true, false), GateOutcome::BlockFindings);
+        assert_eq!(gate_outcome(false, true, true), GateOutcome::ForceOverride);
+    }
+
+    #[test]
+    fn clean_scan_passes_the_gate() {
+        assert_eq!(gate_outcome(false, false, false), GateOutcome::Pass);
+        assert_eq!(gate_outcome(false, false, true), GateOutcome::Pass);
+    }
+
+    // --- sanitized build environment (audit ME-4) ----------------------------
+
+    #[test]
+    fn build_env_forces_known_good_path() {
+        // A poisoned ambient PATH must be replaced, never inherited.
+        let env = sanitized_build_env([(
+            "PATH".to_string(),
+            "/tmp/evil:/home/x/.local/bin".to_string(),
+        )]);
+        let path = env
+            .iter()
+            .find(|(k, _)| k == "PATH")
+            .map(|(_, v)| v.as_str());
+        assert_eq!(path, Some("/usr/bin:/bin:/usr/local/bin"));
+        assert!(
+            !env.iter().any(|(_, v)| v.contains("evil")),
+            "poisoned PATH must be dropped"
+        );
+    }
+
+    #[test]
+    fn build_env_drops_redirect_vectors() {
+        // GNUPGHOME / BUILDDIR / GIT_* / LD_PRELOAD must NOT pass through, so they
+        // cannot redirect a trusted helper or weaken signature checks.
+        let ambient = [
+            ("GNUPGHOME", "/tmp/attacker-keys"),
+            ("BUILDDIR", "/tmp/redirect"),
+            ("PKGDEST", "/tmp/redirect"),
+            ("GIT_SSL_NO_VERIFY", "1"),
+            ("GIT_SSH", "/tmp/evil-ssh"),
+            ("LD_PRELOAD", "/tmp/evil.so"),
+            ("PATH", "/tmp/evil"),
+        ]
+        .map(|(k, v)| (k.to_string(), v.to_string()));
+        let env = sanitized_build_env(ambient);
+        let keys: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
+        for dropped in ["GNUPGHOME", "BUILDDIR", "PKGDEST", "GIT_SSL_NO_VERIFY", "GIT_SSH", "LD_PRELOAD"] {
+            assert!(!keys.contains(&dropped), "{dropped} must be dropped from the build env");
+        }
+    }
+
+    #[test]
+    fn build_env_keeps_safe_passthroughs() {
+        let ambient = [
+            ("HOME", "/home/alice"),
+            ("LANG", "en_US.UTF-8"),
+            ("MAKEFLAGS", "-j4"),
+            ("EVIL", "x"),
+        ]
+        .map(|(k, v)| (k.to_string(), v.to_string()));
+        let env = sanitized_build_env(ambient);
+        let get = |k: &str| env.iter().find(|(ek, _)| ek == k).map(|(_, v)| v.clone());
+        assert_eq!(get("HOME").as_deref(), Some("/home/alice"));
+        assert_eq!(get("LANG").as_deref(), Some("en_US.UTF-8"));
+        assert_eq!(get("MAKEFLAGS").as_deref(), Some("-j4"));
+        assert_eq!(get("EVIL"), None, "non-allowlisted vars must be dropped");
     }
 }

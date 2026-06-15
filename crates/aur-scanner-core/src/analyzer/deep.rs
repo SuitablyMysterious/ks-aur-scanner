@@ -7,7 +7,8 @@
 
 use super::SecurityAnalyzer;
 use crate::error::Result;
-use crate::textutil::{deobfuscate_text, SHELLS};
+use crate::rules::informational_lines;
+use crate::textutil::{deobfuscate_text, logical_lines, SHELLS};
 use crate::types::{AnalysisContext, Category, Finding, Location, Severity};
 use async_trait::async_trait;
 use lazy_static::lazy_static;
@@ -42,10 +43,19 @@ impl DeepAnalyzer {
     fn analyze_text(&self, text: &str, file: &std::path::Path) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        // Strip full-line comments so a documented example doesn't trip it.
-        let code: String = text
-            .lines()
-            .filter(|l| !l.trim_start().starts_with('#'))
+        // Strip comment lines AND printed/informational lines (a non-redirected
+        // heredoc body or a pure `echo`/`msg "..."` print) using the shared
+        // rule-engine pre-filter, so a package that merely DOCUMENTS a
+        // `base64 -d | sh` example does not raise DEEP-001. Work on logical lines
+        // so a backslash-continued decode/exec is still seen as one command.
+        let lines = logical_lines(text);
+        let line_strs: Vec<&str> = lines.iter().map(|(_, s)| s.as_str()).collect();
+        let informational = informational_lines(&line_strs);
+        let code: String = lines
+            .iter()
+            .enumerate()
+            .filter(|(i, (_, l))| !l.trim_start().starts_with('#') && !informational[*i])
+            .map(|(_, (_, l))| l.as_str())
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -164,6 +174,19 @@ mod tests {
         assert!(
             findings.iter().any(|f| f.id == "DEEP-001"),
             "obfuscated decode->exec must trip DEEP-001: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn documented_decode_exec_in_heredoc_not_flagged() {
+        // Task 4050a: a `base64 -d | sh` example that only appears in a printed
+        // (non-redirected) heredoc is documentation, not a payload — no DEEP-001.
+        let a = DeepAnalyzer::new();
+        let text = "post_install() {\n  cat <<EOF\n  example: echo data | base64 -d | sh\nEOF\n}";
+        let findings = a.analyze_text(text, Path::new("test.install"));
+        assert!(
+            !findings.iter().any(|f| f.id == "DEEP-001"),
+            "documented decode|exec in a printed heredoc must not fire DEEP-001: {findings:?}"
         );
     }
 

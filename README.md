@@ -104,7 +104,7 @@ This scanner implements detection rules based on real-world attacks and security
 
 | Feature | Description |
 |---------|-------------|
-| **Static Analysis** | 70+ detection codes across pattern rules and dedicated analyzers, in one auditable catalog |
+| **Static Analysis** | 110+ detection codes across pattern rules and dedicated analyzers, in one auditable catalog |
 | **Install Script Scanning** | Analyzes `.install` scripts for persistence mechanisms |
 | **Source Verification** | Validates URLs, checksums, and download sources |
 | **AUR Integration** | Fetch and scan packages directly from AUR before installation |
@@ -545,9 +545,10 @@ NeedsTargets
 
 ## Detection Rules Reference
 
-> Generated from the catalog (`aur-scan codes --format markdown`). Every ID is
-> unique and audit-enforced. Extend it with your own TOML rules
-> (see [Custom & Community Rules](#custom--community-rules)).
+> The **115 built-in detection codes**, generated from the catalog
+> (`aur-scan codes --format markdown`) — every ID is unique and audit-enforced.
+> (`EXAMPLE-001` is the shipped community-rule sample, not a built-in.) Extend the
+> catalog with your own TOML rules (see [Custom & Community Rules](#custom--community-rules)).
 
 ## CRITICAL severity
 
@@ -561,6 +562,7 @@ NeedsTargets
 | `CRED-001` | SSH key access | Credential Theft | rules | CWE-522 |
 | `CRED-002` | GPG key access | Credential Theft | rules | CWE-522 |
 | `CRED-003` | Password file access | Credential Theft | rules | CWE-522 |
+| `CRED-005` | Keyring / wallet access | Credential Theft | rules | CWE-522 |
 | `CRYPTO-001` | Mining pool connection | Cryptomining | rules | CWE-506 |
 | `CRYPTO-002` | Cryptominer binary | Cryptomining | rules | CWE-506 |
 | `CRYPTO-003` | Monero/Bitcoin wallet address | Cryptomining | rules | CWE-506 |
@@ -570,10 +572,13 @@ NeedsTargets
 | `DLE-003` | Curl output executed | Command Injection | rules | CWE-94 |
 | `ENV-001` | LD_PRELOAD manipulation | Malicious Code | rules | CWE-426 |
 | `ENV-003` | Bashrc/profile modification | Persistence | rules | CWE-506 |
+| `EXEC-002` | Shell -c command substitution fetch | Malicious Code | rules | CWE-494 |
 | `EXEC-REMOTE` | Fetches and runs external code | Malicious Code | remote_exec | CWE-494 |
 | `EXFIL-001` | Curl POST data exfiltration | Data Exfiltration | rules | CWE-200 |
 | `EXFIL-002` | Netcat data transfer | Data Exfiltration | rules | CWE-200 |
 | `EXFIL-003` | Discord/Telegram webhook | Data Exfiltration | rules | CWE-506 |
+| `EXFIL-004` | DNS exfiltration | Data Exfiltration | rules | CWE-200 |
+| `EXFIL-008` | Slack/Teams webhook exfiltration | Data Exfiltration | rules | CWE-200 |
 | `INSTALL-001` | Python execution in install script | Malicious Code | rules | CWE-94 |
 | `INSTALL-003` | Network access in install script | Network Security | rules | CWE-494 |
 | `INSTALL-004` | Language package manager invoked in install hook | Malicious Code | rules | CWE-494 |
@@ -586,10 +591,23 @@ NeedsTargets
 | `PRIV-001` | Sudo usage in a build function | Privilege Escalation | privilege | CWE-250 |
 | `PRIV-002` | SUID/SGID bit set in a function | Privilege Escalation | privilege | CWE-732 |
 | `PRIV-003` | Sudoers modification | Privilege Escalation | privilege | CWE-250 |
+| `PRIV-007` | Privileged account manipulation | Privilege Escalation | rules | CWE-269 |
+| `PRIV-008` | Password manipulation | Privilege Escalation | rules | CWE-269 |
 | `SHELL-001` | Bash reverse shell | Malicious Code | rules | CWE-506 |
 | `SHELL-002` | Netcat reverse shell | Malicious Code | rules | CWE-506 |
 | `SHELL-003` | Python reverse shell | Malicious Code | rules | CWE-506 |
 | `SHELL-004` | Socat shell | Malicious Code | rules | CWE-506 |
+| `SHELL-005` | Perl reverse shell | Malicious Code | rules | CWE-94 |
+| `SHELL-006` | PHP reverse shell | Malicious Code | rules | CWE-94 |
+| `SHELL-007` | Ruby/Lua/AWK reverse shell | Malicious Code | rules | CWE-94 |
+| `SHELL-008` | Node.js reverse shell | Malicious Code | rules | CWE-94 |
+| `SHELL-009` | OpenSSL-encrypted reverse shell | Malicious Code | rules | CWE-94 |
+| `SHELL-010` | Named-pipe (mkfifo) reverse shell | Malicious Code | rules | CWE-94 |
+| `SHELL-011` | Busybox/telnet/ncat-ssl shell | Malicious Code | rules | CWE-94 |
+| `TAMPER-001` | Auth database write | Privilege Escalation | rules | CWE-269 |
+| `TAMPER-002` | doas/sudoers nopasswd grant | Privilege Escalation | rules | CWE-269 |
+| `TAMPER-005` | PAM tampering | Privilege Escalation | rules | CWE-287 |
+| `TAMPER-011` | pacman signature downgrade | Malicious Code | rules | CWE-347 |
 
 ## HIGH severity
 
@@ -598,17 +616,31 @@ NeedsTargets
 | `CHK-001` | No checksums for sources | Cryptography | checksum | CWE-354 |
 | `CHK-005` | All non-VCS sources use SKIP | Cryptography | checksum | CWE-354 |
 | `CHK-006` | Checksum count mismatch | Configuration | checksum | - |
+| `CRED-004` | Cloud / CI credential file access | Credential Theft | rules | CWE-522 |
+| `CRED-008` | Environment/secret dump | Credential Theft | rules | CWE-522 |
 | `DEEP-002` | Large embedded encoded blob | Obfuscation | deep | CWE-506 |
+| `DEP-001` | Provides a core package name (dependency confusion) | Suspicious Metadata | metadata | CWE-427 |
+| `DEP-003` | Package index/registry override | Dependencies | rules | CWE-494 |
 | `ENV-002` | PATH manipulation | Malicious Code | rules | CWE-426 |
+| `EXEC-006` | sqlite3 shell-command execution | Malicious Code | rules | CWE-94 |
+| `EXEC-007` | make reads a Makefile from stdin | Command Injection | rules | CWE-94 |
+| `EXFIL-006` | HTTP upload exfiltration | Data Exfiltration | rules | CWE-200 |
+| `EXFIL-007` | wget POST exfiltration | Data Exfiltration | rules | CWE-200 |
+| `EXFIL-009` | Anonymous file-drop / tunnel host | Data Exfiltration | rules | CWE-200 |
 | `FUNC-001` | Network access in a build function | Network Security | pattern | - |
 | `HIDDEN-001` | Hidden file creation in home | Malicious Code | rules | - |
 | `HIDDEN-002` | Tmp directory execution | Malicious Code | rules | - |
 | `HIDDEN-003` | Binary in non-standard location | Malicious Code | rules | - |
 | `INSTALL-002` | Binary execution in install script | Malicious Code | rules | CWE-94 |
+| `META-003` | Replaces/conflicts a core or security package | Suspicious Metadata | metadata | CWE-1357 |
 | `OBF-001` | Base64 decoding | Obfuscation | rules | CWE-506 |
 | `OBF-002` | Eval usage | Command Injection | rules | CWE-95 |
 | `OBF-003` | Hex-encoded payload | Obfuscation | rules | CWE-506 |
 | `OBF-005` | Gzip decode execution | Obfuscation | rules | CWE-94 |
+| `OBF-006` | Quote-splitting / character obfuscation | Obfuscation | rules | CWE-506 |
+| `OBF-007` | printf character assembly | Obfuscation | rules | CWE-506 |
+| `OBF-008` | Alternate-encoding decode | Obfuscation | rules | CWE-506 |
+| `OBF-011` | Interpreter here-string execution | Obfuscation | rules | CWE-94 |
 | `PERSIST-003` | Cron job creation | Persistence | rules | - |
 | `PERSIST-005` | XDG autostart creation | Persistence | rules | - |
 | `PRIV-005` | Kernel module operations | Privilege Escalation | privilege | - |
@@ -617,6 +649,10 @@ NeedsTargets
 | `SRC-002` | Suspicious source domain | Network Security | source | - |
 | `SRC-003` | Raw IP address in source URL | Network Security | source | - |
 | `SRC-004` | URL shortener in source | Network Security | source | - |
+| `SRC-009` | Obfuscated IP in URL | Network Security | rules | CWE-94 |
+| `TAMPER-013` | Security control disabled | Malicious Code | rules | CWE-693 |
+| `TAMPER-017` | CA trust anchor injection | Malicious Code | rules | CWE-295 |
+| `TRUST-001` | pacman keyring poisoning | Malicious Code | rules | CWE-494 |
 | `URL-001` | Raw IP in URL | Network Security | rules | - |
 | `URL-002` | URL shortener | Network Security | rules | - |
 | `URL-003` | Dynamic DNS domain | Network Security | rules | - |
@@ -628,17 +664,26 @@ NeedsTargets
 | `CHK-002` | MD5 checksums used | Cryptography | checksum | CWE-328 |
 | `CHK-003` | SHA1 checksums used | Cryptography | checksum | CWE-328 |
 | `CHK-004` | Some sources use SKIP checksum | Cryptography | checksum | CWE-354 |
+| `CHK-008` | Malformed or wrong-length checksum | Cryptography | checksum | CWE-354 |
+| `EXEC-005` | Detached background execution | Malicious Code | rules | CWE-506 |
+| `META-005` | install= points outside the package | Suspicious Metadata | metadata | CWE-426 |
+| `META-006` | backup= of a security-sensitive file | Suspicious Metadata | metadata | CWE-426 |
 | `OBF-004` | String concatenation obfuscation | Obfuscation | rules | - |
 | `PRIV-004` | Capabilities being set | Privilege Escalation | privilege | CWE-250 |
 | `SRC-001` | Insecure source/transport protocol | Network Security | source | CWE-319 |
 | `SRC-005` | No sources with a build function | Configuration | source | - |
+| `TRUST-002` | GPG key import at build time | Malicious Code | rules | CWE-494 |
 
 ## LOW severity
 
 | Code | Name | Category | Detector | CWE |
 |------|------|----------|----------|-----|
 | `META-001` | Provides impersonation | Suspicious Metadata | rules | - |
+| `META-002` | validpgpkeys declared but no signature verified | Suspicious Metadata | metadata | CWE-347 |
+| `META-004` | epoch set (forces upgrade over the repo version) | Suspicious Metadata | metadata | - |
 | `SRC-006` | VCS source from non-standard host | Network Security | source | - |
+| `SRC-007` | VCS source not pinned to a commit | Network Security | source | CWE-494 |
+| `SRC-008` | Source host differs from upstream url host | Network Security | source | - |
 
 ## Custom & Community Rules
 

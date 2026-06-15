@@ -4,6 +4,62 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-06-15
+
+Stable promotion of the 1.1.0 release-candidate line, plus a second hardening
+wave that closes the residual evasion classes surfaced by an adversarial
+self-audit. **Stable.**
+
+### Detection — evasion classes closed
+
+- **Variable-indirection (taint pass).** A fetch/exec hidden behind a shell
+  variable (`dl=curl; $dl …`, a `$(printf …)`-assembled command name) is now
+  resolved and matched in addition to the raw and de-obfuscated forms — it used to
+  evade every rule. Resolution only ever adds a finding, never suppresses one.
+- **Case-insensitive analyzers.** The structural analyzers (privilege, remote-exec,
+  deep, source) match command/shell/interpreter tokens case-insensitively, so a
+  cased-up payload no longer slips a finding. Canonical-casing tokens (env-var
+  NAMEs, the `R` interpreter, base64/hex alphabets) stay case-sensitive to avoid
+  false positives.
+- **Host-aware URL/IOC matching.** Domain and source-host checks parse the real URL
+  authority instead of a naive substring, closing a `github.com\@evil.tld` /
+  defanged-host evasion and a path-segment-as-host false positive.
+- **Supply-chain & packaging-metadata analyzer.** New structural checks over
+  `provides`/`replaces`/`epoch`/`backup`/`install`/`validpgpkeys`/checksums
+  (dependency confusion, core-package displacement, signature theatre, sensitive
+  `backup=`, malformed hashes).
+- The printed-message filter is quote-aware: a `;` inside a quoted `echo` no longer
+  trips `HIDDEN-001`.
+
+### Hardening
+
+- **Cache verdicts are authenticated** with a per-user keyed MAC — a local writer
+  can no longer flip a malicious verdict to benign; a MAC failure is a miss, not
+  trusted data.
+- The `makepkg` build environment is allowlisted (a poisoned `PATH`/`LD_*`/`GIT_*`
+  cannot redirect trusted helpers); `--force` can never override an *unscannable*
+  package; a `--local` scan only attributes a cached verdict to a node whose name
+  provably matches.
+- A community rule that omits `file_types` now defaults to the scanned types
+  instead of loading inert.
+
+### Quality
+
+- A **self-adversarial evasion fuzzer** runs as a release gate: every malicious
+  fixture is mutated through a library of semantics-preserving evasion transforms
+  and the gate must still block each variant — a slip fails the build.
+
+### Credits
+
+The install-hook package-manager detection (`ATOMIC-002`) and the de-obfuscation
+pass this release hardens were prompted by community threat reports:
+[@LunarEclipse363](https://github.com/LunarEclipse363)
+([#2](https://github.com/KiefStudioMA/ks-aur-scanner/issues/2) — the
+orphaned-package takeover that pulled the `atomic-lockfile` infostealer through an
+install hook) and [@zebulon2](https://github.com/zebulon2)
+([#10](https://github.com/KiefStudioMA/ks-aur-scanner/issues/10) — the obfuscated
+`bun add` (`nextfile-js`) variant the de-obfuscation pass now sees through).
+
 ## [1.1.0-rc3] - 2026-06-15
 
 Security-hardening release: an adversarial pre-ship review of the rc2 code closed

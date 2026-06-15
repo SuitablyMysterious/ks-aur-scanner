@@ -102,6 +102,6 @@
     "tests/fixtures/malicious/trust-tamper/PKGBUILD",
     "tests/fixtures/malicious/trust-tamper/sysprep.install"
   ],
-  "timestamp": "2026-06-15T13:33:51.318680683Z",
+  "timestamp": "2026-06-15T13:48:50.586727668Z",
   "scan_duration_ms": 6
 }

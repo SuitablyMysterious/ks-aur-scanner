@@ -415,6 +415,6 @@
     "tests/fixtures/malicious/launcher-shell/PKGBUILD",
     "tests/fixtures/malicious/launcher-shell/launcher-shell.install"
   ],
-  "timestamp": "2026-06-15T13:33:50.453719011Z",
+  "timestamp": "2026-06-15T13:48:49.713146019Z",
   "scan_duration_ms": 7
 }

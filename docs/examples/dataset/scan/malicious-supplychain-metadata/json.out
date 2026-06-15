@@ -161,6 +161,6 @@
     "tests/fixtures/malicious/supplychain-metadata/PKGBUILD",
     "tests/fixtures/malicious/supplychain-metadata/postinstall.hook.sh"
   ],
-  "timestamp": "2026-06-15T13:33:51.172337935Z",
-  "scan_duration_ms": 7
+  "timestamp": "2026-06-15T13:48:50.443010634Z",
+  "scan_duration_ms": 6
 }

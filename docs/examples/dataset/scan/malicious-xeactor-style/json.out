@@ -185,6 +185,6 @@
   "scanned_files": [
     "tests/fixtures/malicious/xeactor-style/PKGBUILD"
   ],
-  "timestamp": "2026-06-15T13:33:51.611759242Z",
-  "scan_duration_ms": 6
+  "timestamp": "2026-06-15T13:48:50.879196202Z",
+  "scan_duration_ms": 7
 }

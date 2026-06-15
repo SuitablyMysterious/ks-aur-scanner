@@ -185,6 +185,6 @@
   "scanned_files": [
     "tests/fixtures/malicious/credential-theft/PKGBUILD"
   ],
-  "timestamp": "2026-06-15T13:33:49.873203698Z",
-  "scan_duration_ms": 5
+  "timestamp": "2026-06-15T13:48:49.130161421Z",
+  "scan_duration_ms": 6
 }

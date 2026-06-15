@@ -95,6 +95,6 @@
   "scanned_files": [
     "tests/fixtures/malicious/var-indirection/PKGBUILD"
   ],
-  "timestamp": "2026-06-15T13:33:51.464706053Z",
-  "scan_duration_ms": 5
+  "timestamp": "2026-06-15T13:48:50.737887192Z",
+  "scan_duration_ms": 6
 }

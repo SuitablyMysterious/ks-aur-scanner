@@ -122,6 +122,11 @@ Scan Results: launcher-shell
     Reference: CWE-94
 
 [HIGH] FUNC-001 Network access in build function
+    Function 'package' contains network access command 'wget'
+    Location: tests/fixtures/malicious/launcher-shell/PKGBUILD:29
+    Recommendation: Network access should happen in source= array, not build functions
+
+[HIGH] FUNC-001 Network access in build function
     Function 'build' contains network access command 'curl'
     Location: tests/fixtures/malicious/launcher-shell/PKGBUILD:15
     Recommendation: Network access should happen in source= array, not build functions
@@ -129,11 +134,6 @@ Scan Results: launcher-shell
 [HIGH] FUNC-001 Network access in build function
     Function 'build' contains network access command 'wget'
     Location: tests/fixtures/malicious/launcher-shell/PKGBUILD:15
-    Recommendation: Network access should happen in source= array, not build functions
-
-[HIGH] FUNC-001 Network access in build function
-    Function 'package' contains network access command 'wget'
-    Location: tests/fixtures/malicious/launcher-shell/PKGBUILD:29
     Recommendation: Network access should happen in source= array, not build functions
 
 [MEDIUM] SRC-005 No sources with build function

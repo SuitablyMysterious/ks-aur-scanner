@@ -122,6 +122,17 @@
       "pattern_based": false
     },
     {
+      "id": "CHK-008",
+      "name": "Malformed or wrong-length checksum",
+      "severity": "medium",
+      "category": "cryptography",
+      "description": "A checksum is not valid hex of the algorithm's expected length (md5=32, sha1=40, sha256=64, sha512/b2=128).",
+      "recommendation": "Regenerate checksums with updpkgsums; a malformed hash silently disables integrity verification.",
+      "cwe": "CWE-354",
+      "owner": "checksum",
+      "pattern_based": false
+    },
+    {
       "id": "CRED-001",
       "name": "SSH key access",
       "severity": "critical",
@@ -240,6 +251,17 @@
       "recommendation": "Decode and verify the blob is legitimate data.",
       "cwe": "CWE-506",
       "owner": "deep",
+      "pattern_based": false
+    },
+    {
+      "id": "DEP-001",
+      "name": "Provides a core package name (dependency confusion)",
+      "severity": "high",
+      "category": "suspicious_metadata",
+      "description": "provides= a curated core package name from a package that is not that package's own alternate, satisfying a dependency in its place.",
+      "recommendation": "Remove the provides unless this is the legitimate provider.",
+      "cwe": "CWE-427",
+      "owner": "metadata",
       "pattern_based": false
     },
     {
@@ -582,6 +604,61 @@
       "cwe": null,
       "owner": "rules",
       "pattern_based": true
+    },
+    {
+      "id": "META-002",
+      "name": "validpgpkeys declared but no signature verified",
+      "severity": "low",
+      "category": "suspicious_metadata",
+      "description": "validpgpkeys= lists signing keys but no source carries a detached signature or ?signed fragment, so the key verifies nothing.",
+      "recommendation": "Verify a signed source against the key, or remove the unused validpgpkeys.",
+      "cwe": "CWE-347",
+      "owner": "metadata",
+      "pattern_based": false
+    },
+    {
+      "id": "META-003",
+      "name": "Replaces/conflicts a core or security package",
+      "severity": "high",
+      "category": "suspicious_metadata",
+      "description": "replaces=/conflicts= forces pacman to displace an official (often security-critical) package with this AUR build.",
+      "recommendation": "Remove unless this is the legitimate provider; report to the AUR maintainers.",
+      "cwe": "CWE-1357",
+      "owner": "metadata",
+      "pattern_based": false
+    },
+    {
+      "id": "META-004",
+      "name": "epoch set (forces upgrade over the repo version)",
+      "severity": "low",
+      "category": "suspicious_metadata",
+      "description": "epoch>=1 makes the package outrank the official version regardless of pkgver; escalates when combined with provides/replaces of a trusted name.",
+      "recommendation": "Confirm the epoch is a real upstream versioning reset, not a stealth supersede.",
+      "cwe": null,
+      "owner": "metadata",
+      "pattern_based": false
+    },
+    {
+      "id": "META-005",
+      "name": "install= points outside the package",
+      "severity": "medium",
+      "category": "suspicious_metadata",
+      "description": "install= is not a plain <name>.install file (contains a path, .., or non-.install name).",
+      "recommendation": "Use a plain <pkgname>.install shipped with the PKGBUILD.",
+      "cwe": "CWE-426",
+      "owner": "metadata",
+      "pattern_based": false
+    },
+    {
+      "id": "META-006",
+      "name": "backup= of a security-sensitive file",
+      "severity": "medium",
+      "category": "suspicious_metadata",
+      "description": "backup= lists a security-sensitive path (sudoers/ssh/pam.d/ld.so/etc.), a persistent root-level tamper surface.",
+      "recommendation": "Packages should not own/back up authentication, linker, or privilege files.",
+      "cwe": "CWE-426",
+      "owner": "metadata",
+      "pattern_based": false
     },
     {
       "id": "OBF-001",
@@ -1053,6 +1130,17 @@
       "description": "A git/VCS source uses a movable ref (branch/tag or none), so the fetched content is not integrity-pinned and can change between scan and build.",
       "recommendation": "Pin the VCS source to an immutable revision with #commit=<sha>.",
       "cwe": "CWE-494",
+      "owner": "source",
+      "pattern_based": false
+    },
+    {
+      "id": "SRC-008",
+      "name": "Source host differs from upstream url host",
+      "severity": "low",
+      "category": "network_security",
+      "description": "url= and a source= are both on known forges but different ones (a personal-fork-vs-upstream signal).",
+      "recommendation": "Verify the source forge is the project's official one.",
+      "cwe": null,
       "owner": "source",
       "pattern_based": false
     },

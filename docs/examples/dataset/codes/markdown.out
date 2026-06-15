@@ -1,6 +1,6 @@
 # Detection Codes
 
-_108 codes across 13 categories. Generated from the catalog; do not edit by hand._
+_116 codes across 13 categories. Generated from the catalog; do not edit by hand._
 
 ## CRITICAL severity
 
@@ -71,6 +71,7 @@ _108 codes across 13 categories. Generated from the catalog; do not edit by hand
 | `CRED-004` | Cloud / CI credential file access | Credential Theft | rules | CWE-522 |
 | `CRED-008` | Environment/secret dump | Credential Theft | rules | CWE-522 |
 | `DEEP-002` | Large embedded encoded blob | Obfuscation | deep | CWE-506 |
+| `DEP-001` | Provides a core package name (dependency confusion) | Suspicious Metadata | metadata | CWE-427 |
 | `DEP-003` | Package index/registry override | Dependencies | rules | CWE-494 |
 | `ENV-002` | PATH manipulation | Malicious Code | rules | CWE-426 |
 | `EXEC-006` | sqlite3 shell-command execution | Malicious Code | rules | CWE-94 |
@@ -83,6 +84,7 @@ _108 codes across 13 categories. Generated from the catalog; do not edit by hand
 | `HIDDEN-002` | Tmp directory execution | Malicious Code | rules | - |
 | `HIDDEN-003` | Binary in non-standard location | Malicious Code | rules | - |
 | `INSTALL-002` | Binary execution in install script | Malicious Code | rules | CWE-94 |
+| `META-003` | Replaces/conflicts a core or security package | Suspicious Metadata | metadata | CWE-1357 |
 | `OBF-001` | Base64 decoding | Obfuscation | rules | CWE-506 |
 | `OBF-002` | Eval usage | Command Injection | rules | CWE-95 |
 | `OBF-003` | Hex-encoded payload | Obfuscation | rules | CWE-506 |
@@ -114,7 +116,10 @@ _108 codes across 13 categories. Generated from the catalog; do not edit by hand
 | `CHK-002` | MD5 checksums used | Cryptography | checksum | CWE-328 |
 | `CHK-003` | SHA1 checksums used | Cryptography | checksum | CWE-328 |
 | `CHK-004` | Some sources use SKIP checksum | Cryptography | checksum | CWE-354 |
+| `CHK-008` | Malformed or wrong-length checksum | Cryptography | checksum | CWE-354 |
 | `EXEC-005` | Detached background execution | Malicious Code | rules | CWE-506 |
+| `META-005` | install= points outside the package | Suspicious Metadata | metadata | CWE-426 |
+| `META-006` | backup= of a security-sensitive file | Suspicious Metadata | metadata | CWE-426 |
 | `OBF-004` | String concatenation obfuscation | Obfuscation | rules | - |
 | `PRIV-004` | Capabilities being set | Privilege Escalation | privilege | CWE-250 |
 | `SRC-001` | Insecure source/transport protocol | Network Security | source | CWE-319 |
@@ -126,8 +131,11 @@ _108 codes across 13 categories. Generated from the catalog; do not edit by hand
 | Code | Name | Category | Detector | CWE |
 |------|------|----------|----------|-----|
 | `META-001` | Provides impersonation | Suspicious Metadata | rules | - |
+| `META-002` | validpgpkeys declared but no signature verified | Suspicious Metadata | metadata | CWE-347 |
+| `META-004` | epoch set (forces upgrade over the repo version) | Suspicious Metadata | metadata | - |
 | `SRC-006` | VCS source from non-standard host | Network Security | source | - |
 | `SRC-007` | VCS source not pinned to a commit | Network Security | source | CWE-494 |
+| `SRC-008` | Source host differs from upstream url host | Network Security | source | - |
 
 ## INFO severity
 

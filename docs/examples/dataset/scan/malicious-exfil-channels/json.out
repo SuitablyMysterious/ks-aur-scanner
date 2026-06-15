@@ -197,6 +197,6 @@
     "tests/fixtures/malicious/exfil-channels/PKGBUILD",
     "tests/fixtures/malicious/exfil-channels/stats-collector.install"
   ],
-  "timestamp": "2026-06-15T10:43:30.476186422Z",
-  "scan_duration_ms": 5
+  "timestamp": "2026-06-15T12:46:42.126705530Z",
+  "scan_duration_ms": 6
 }

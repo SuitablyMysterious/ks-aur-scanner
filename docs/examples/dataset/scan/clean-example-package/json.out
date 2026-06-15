@@ -5,6 +5,6 @@
   "scanned_files": [
     "tests/fixtures/clean/example-package/PKGBUILD"
   ],
-  "timestamp": "2026-06-15T10:43:29.479513497Z",
-  "scan_duration_ms": 5
+  "timestamp": "2026-06-15T12:46:41.000179480Z",
+  "scan_duration_ms": 6
 }

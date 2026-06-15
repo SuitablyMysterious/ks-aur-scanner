@@ -1,6 +1,6 @@
 AUR Security Scanner - Detection Codes
 ============================================================
-108 codes across 13 categories
+116 codes across 13 categories
 
 [Command Injection]
   DLE-001 [Critical] Curl pipe to shell
@@ -30,6 +30,7 @@ AUR Security Scanner - Detection Codes
   CHK-003 [Medium] SHA1 checksums used (checksum)
   CHK-004 [Medium] Some sources use SKIP checksum (checksum)
   CHK-005 [High] All non-VCS sources use SKIP (checksum)
+  CHK-008 [Medium] Malformed or wrong-length checksum (checksum)
 
 [Cryptomining]
   CRYPTO-001 [Critical] Mining pool connection
@@ -92,6 +93,7 @@ AUR Security Scanner - Detection Codes
   SRC-004 [High] URL shortener in source (source)
   SRC-006 [Low] VCS source from non-standard host (source)
   SRC-007 [Low] VCS source not pinned to a commit (source)
+  SRC-008 [Low] Source host differs from upstream url host (source)
   SRC-009 [High] Obfuscated IP in URL
   URL-001 [High] Raw IP in URL
   URL-002 [High] URL shortener
@@ -133,7 +135,13 @@ AUR Security Scanner - Detection Codes
   TAMPER-005 [Critical] PAM tampering
 
 [Suspicious Metadata]
+  DEP-001 [High] Provides a core package name (dependency confusion) (metadata)
   META-001 [Low] Provides impersonation
+  META-002 [Low] validpgpkeys declared but no signature verified (metadata)
+  META-003 [High] Replaces/conflicts a core or security package (metadata)
+  META-004 [Low] epoch set (forces upgrade over the repo version) (metadata)
+  META-005 [Medium] install= points outside the package (metadata)
+  META-006 [Medium] backup= of a security-sensitive file (metadata)
   PROV-001 [High] Package gained risky behavior (provenance)
 
 Use 'aur-scan explain <CODE>' for details.

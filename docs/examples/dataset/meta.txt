@@ -1,6 +1,6 @@
 tool: aur-scan
 version: 1.1.0-rc3
-git_commit: f0b383bc457fc6f378f0e13cc3b252941ac7af70
-git_branch: main
+git_commit: 51adc28b0045556fcbd87c4ae845e7dc76a214b6
+git_branch: integration/1.1.0-wave2
 generated_by: docs/examples/capture.sh
 note: timestamp and scan_duration_ms in JSON are runtime values and vary per run.

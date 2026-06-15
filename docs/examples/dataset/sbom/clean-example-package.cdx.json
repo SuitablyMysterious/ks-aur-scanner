@@ -108,7 +108,7 @@
       "name": "example-package",
       "type": "application"
     },
-    "timestamp": "2026-06-15T10:43:32.145415973+00:00",
+    "timestamp": "2026-06-15T12:46:43.899135387+00:00",
     "tools": [
       {
         "name": "aur-scan",
@@ -117,7 +117,7 @@
       }
     ]
   },
-  "serialNumber": "urn:uuid:f9ac272a-3e7d-c8bb-1b74-42be0c404cf5",
+  "serialNumber": "urn:uuid:ed1c5266-5c2a-bdf7-e458-3345e5b671da",
   "specVersion": "1.5",
   "version": 1,
   "vulnerabilities": []

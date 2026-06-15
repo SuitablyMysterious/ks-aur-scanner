@@ -102,6 +102,6 @@
     "tests/fixtures/malicious/reverse-shell-variants/PKGBUILD",
     "tests/fixtures/malicious/reverse-shell-variants/netutil-bin.install"
   ],
-  "timestamp": "2026-06-15T10:43:31.182534251Z",
+  "timestamp": "2026-06-15T12:46:42.837756742Z",
   "scan_duration_ms": 6
 }

@@ -60,14 +60,19 @@ Scan Results: malicious-cryptominer
     Recommendation: Replace md5sums with sha256sums or sha512sums
     Reference: CWE-328
 
+[MEDIUM] CHK-008 Malformed or wrong-length checksum
+    One or more checksums are not valid hex of the expected length, so they cannot match the source and integrity verification is effectively disabled: md5sums has a bad entry 'abc123…' (len 6).
+    Recommendation: Regenerate the checksums with updpkgsums; a malformed hash silently disables integrity verification.
+    Reference: CWE-354
+
 
 
 ============================================================
 Package: malicious-cryptominer v1.0.0-1
-Scan duration: 4ms
+Scan duration: 5ms
 
-Found 9 issue(s):
+Found 10 issue(s):
   5 CRITICAL
   2 HIGH
-  2 MEDIUM
+  3 MEDIUM
 ============================================================

@@ -165,11 +165,31 @@
       "metadata": {
         "algorithm": "MD5"
       }
+    },
+    {
+      "id": "CHK-008",
+      "severity": "medium",
+      "category": "cryptography",
+      "title": "Malformed or wrong-length checksum",
+      "description": "One or more checksums are not valid hex of the expected length, so they cannot match the source and integrity verification is effectively disabled: md5sums has a bad entry 'abc123…' (len 6).",
+      "location": {
+        "file": "tests/fixtures/malicious/cryptominer/PKGBUILD",
+        "line": null,
+        "column": null,
+        "snippet": null
+      },
+      "recommendation": "Regenerate the checksums with updpkgsums; a malformed hash silently disables integrity verification.",
+      "cwe_id": "CWE-354",
+      "metadata": {
+        "malformed": [
+          "md5sums has a bad entry 'abc123…' (len 6)"
+        ]
+      }
     }
   ],
   "scanned_files": [
     "tests/fixtures/malicious/cryptominer/PKGBUILD"
   ],
-  "timestamp": "2026-06-15T10:43:30.184145497Z",
-  "scan_duration_ms": 5
+  "timestamp": "2026-06-15T12:46:41.850689292Z",
+  "scan_duration_ms": 6
 }

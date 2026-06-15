@@ -98,6 +98,6 @@
   "scanned_files": [
     "tests/fixtures/malicious/curl-bash/PKGBUILD"
   ],
-  "timestamp": "2026-06-15T10:43:30.327334633Z",
+  "timestamp": "2026-06-15T12:46:41.987661165Z",
   "scan_duration_ms": 5
 }

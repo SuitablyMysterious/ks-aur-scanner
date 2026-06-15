@@ -94,6 +94,6 @@
   "scanned_files": [
     "tests/fixtures/malicious/obfuscated/PKGBUILD"
   ],
-  "timestamp": "2026-06-15T10:43:30.763920458Z",
-  "scan_duration_ms": 4
+  "timestamp": "2026-06-15T12:46:42.412425840Z",
+  "scan_duration_ms": 5
 }

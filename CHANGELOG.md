@@ -4,6 +4,47 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0-rc2] - 2026-06-14
+
+Proactive detection expansion, driven by a live obfuscated AUR campaign and an
+adversarial gap analysis of the catalog. **Release candidate.**
+
+### Anti-evasion (the multiplier)
+
+- **De-obfuscation pass.** A new wave hid a `bun add <js-payload>` in a
+  `post_install` hook using ANSI-C quoting (`$'\x63'`) and adjacent-quote
+  word-splitting (`"b"'u''n'`), which evaded the targeted rules — rc1 caught it
+  only as a generic high "hex payload." The scanner now **decodes** ANSI-C
+  escapes and **collapses** quote-splitting, and runs *every* rule against the
+  decoded text. The whole catalog now resists this evasion at once: that sample
+  is correctly flagged **critical** (`ATOMIC-002`, package-manager-in-install-hook).
+- `OBF-006` flags the quote-splitting technique itself; `OBF-007/008/011` add
+  printf-assembly, base32/16 decode, and interpreter here-strings.
+
+### Detection — +28 rules across six threat classes (catalog 72 → 106)
+
+- **Reverse/bind shells:** `SHELL-005..011` — perl, php, ruby/lua/awk, node,
+  openssl `s_client`, `mkfifo` backpipe, busybox-nc/telnet/ncat-ssl.
+- **Exfiltration:** `EXFIL-004` (DNS), `EXFIL-006/007` (curl/wget upload),
+  `EXFIL-008` (Slack/Teams webhooks), `EXFIL-009` (file-drop/tunnel hosts),
+  `CRED-004/005/008` (cloud/CI creds, keyrings/wallets, env dump).
+- **Auth/system tampering:** `PRIV-007/008` (privileged account, password),
+  `TAMPER-001/002/005/011/013/017` (auth-db write, doas/NOPASSWD, PAM, pacman
+  `SigLevel=Never`, disabling security controls, CA trust anchor).
+- **Supply-chain trust:** `TRUST-001/002` (pacman-key / gpg import),
+  `DEP-003` (index/registry override), `SRC-009` (obfuscated IP in URL).
+- **RCE:** `EXEC-002` (`sh -c "$(curl)"`), `EXEC-005` (detached `setsid`/`nohup`).
+
+### Other
+
+- `aur-scan install` now tidies its own build directory after a successful
+  install (`--keep-build` to retain).
+- Packaging: `options=('!debug' '!strip')` — the release binaries are already
+  stripped by cargo, so makepkg's split-debug + re-strip passes were redundant
+  (and produced an empty `-debug` package + `gdb-add-index`/libfakeroot noise).
+- The fail-closed wrapper and the privilege-dropping pacman hook gained unit
+  tests for their deny/refuse/validation paths.
+
 ## [1.1.0-rc1] - 2026-06-13
 
 Security-hardening release resolving a full security & quality audit of the

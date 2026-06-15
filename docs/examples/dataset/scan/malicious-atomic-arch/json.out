@@ -144,6 +144,6 @@
     "tests/fixtures/malicious/atomic-arch/PKGBUILD",
     "tests/fixtures/malicious/atomic-arch/alvr.install"
   ],
-  "timestamp": "2026-06-15T12:46:41.422375777Z",
-  "scan_duration_ms": 6
+  "timestamp": "2026-06-15T13:33:49.581251068Z",
+  "scan_duration_ms": 7
 }

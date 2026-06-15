@@ -75,7 +75,7 @@ Scan Results: stats-collector
 
 ============================================================
 Package: stats-collector v1.0.0-1
-Scan duration: 6ms
+Scan duration: 7ms
 
 Found 10 issue(s):
   5 CRITICAL

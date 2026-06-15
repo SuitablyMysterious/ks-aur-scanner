@@ -24,6 +24,6 @@
   "scanned_files": [
     "tests/fixtures/clean/legit-metadata/PKGBUILD"
   ],
-  "timestamp": "2026-06-15T12:46:41.277438200Z",
-  "scan_duration_ms": 5
+  "timestamp": "2026-06-15T13:33:49.432741904Z",
+  "scan_duration_ms": 6
 }

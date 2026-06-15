@@ -43,6 +43,6 @@
   "scanned_files": [
     "tests/fixtures/clean/git-package/PKGBUILD"
   ],
-  "timestamp": "2026-06-15T12:46:41.138645704Z",
+  "timestamp": "2026-06-15T13:33:49.284463986Z",
   "scan_duration_ms": 6
 }

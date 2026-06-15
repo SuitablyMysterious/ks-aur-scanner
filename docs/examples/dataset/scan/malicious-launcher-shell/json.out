@@ -342,6 +342,25 @@
       "severity": "high",
       "category": "network_security",
       "title": "Network access in build function",
+      "description": "Function 'package' contains network access command 'wget'",
+      "location": {
+        "file": "tests/fixtures/malicious/launcher-shell/PKGBUILD",
+        "line": 29,
+        "column": null,
+        "snippet": null
+      },
+      "recommendation": "Network access should happen in source= array, not build functions",
+      "cwe_id": null,
+      "metadata": {
+        "function": "package",
+        "pattern": "wget"
+      }
+    },
+    {
+      "id": "FUNC-001",
+      "severity": "high",
+      "category": "network_security",
+      "title": "Network access in build function",
       "description": "Function 'build' contains network access command 'curl'",
       "location": {
         "file": "tests/fixtures/malicious/launcher-shell/PKGBUILD",
@@ -376,25 +395,6 @@
       }
     },
     {
-      "id": "FUNC-001",
-      "severity": "high",
-      "category": "network_security",
-      "title": "Network access in build function",
-      "description": "Function 'package' contains network access command 'wget'",
-      "location": {
-        "file": "tests/fixtures/malicious/launcher-shell/PKGBUILD",
-        "line": 29,
-        "column": null,
-        "snippet": null
-      },
-      "recommendation": "Network access should happen in source= array, not build functions",
-      "cwe_id": null,
-      "metadata": {
-        "function": "package",
-        "pattern": "wget"
-      }
-    },
-    {
       "id": "SRC-005",
       "severity": "medium",
       "category": "configuration",
@@ -415,6 +415,6 @@
     "tests/fixtures/malicious/launcher-shell/PKGBUILD",
     "tests/fixtures/malicious/launcher-shell/launcher-shell.install"
   ],
-  "timestamp": "2026-06-15T12:46:42.269055716Z",
+  "timestamp": "2026-06-15T13:33:50.453719011Z",
   "scan_duration_ms": 7
 }

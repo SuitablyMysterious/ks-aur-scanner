@@ -335,6 +335,25 @@
                   "uri": "tests/fixtures/malicious/launcher-shell/PKGBUILD"
                 },
                 "region": {
+                  "startLine": 29
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "Function 'package' contains network access command 'wget'"
+          },
+          "ruleId": "FUNC-001"
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "tests/fixtures/malicious/launcher-shell/PKGBUILD"
+                },
+                "region": {
                   "startLine": 15
                 }
               }
@@ -361,25 +380,6 @@
           ],
           "message": {
             "text": "Function 'build' contains network access command 'wget'"
-          },
-          "ruleId": "FUNC-001"
-        },
-        {
-          "level": "error",
-          "locations": [
-            {
-              "physicalLocation": {
-                "artifactLocation": {
-                  "uri": "tests/fixtures/malicious/launcher-shell/PKGBUILD"
-                },
-                "region": {
-                  "startLine": 29
-                }
-              }
-            }
-          ],
-          "message": {
-            "text": "Function 'package' contains network access command 'wget'"
           },
           "ruleId": "FUNC-001"
         },
@@ -685,6 +685,22 @@
                 "level": "error"
               },
               "fullDescription": {
+                "text": "Function 'package' contains network access command 'wget'"
+              },
+              "help": {
+                "text": "Network access should happen in source= array, not build functions"
+              },
+              "id": "FUNC-001",
+              "name": "Network access in build function",
+              "shortDescription": {
+                "text": "Network access in build function"
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
                 "text": "Function 'build' contains network access command 'curl'"
               },
               "help": {
@@ -702,22 +718,6 @@
               },
               "fullDescription": {
                 "text": "Function 'build' contains network access command 'wget'"
-              },
-              "help": {
-                "text": "Network access should happen in source= array, not build functions"
-              },
-              "id": "FUNC-001",
-              "name": "Network access in build function",
-              "shortDescription": {
-                "text": "Network access in build function"
-              }
-            },
-            {
-              "defaultConfiguration": {
-                "level": "error"
-              },
-              "fullDescription": {
-                "text": "Function 'package' contains network access command 'wget'"
               },
               "help": {
                 "text": "Network access should happen in source= array, not build functions"

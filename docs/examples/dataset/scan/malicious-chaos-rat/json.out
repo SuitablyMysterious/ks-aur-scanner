@@ -195,6 +195,6 @@
     "tests/fixtures/malicious/chaos-rat/PKGBUILD",
     "tests/fixtures/malicious/chaos-rat/firefox-patch.install"
   ],
-  "timestamp": "2026-06-15T12:46:41.564117322Z",
+  "timestamp": "2026-06-15T13:33:49.729701947Z",
   "scan_duration_ms": 7
 }

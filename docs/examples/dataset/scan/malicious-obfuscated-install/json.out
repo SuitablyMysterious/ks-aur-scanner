@@ -83,6 +83,6 @@
     "tests/fixtures/malicious/obfuscated-install/PKGBUILD",
     "tests/fixtures/malicious/obfuscated-install/htbrowser-bin-deps.install"
   ],
-  "timestamp": "2026-06-15T12:46:42.551499092Z",
-  "scan_duration_ms": 6
+  "timestamp": "2026-06-15T13:33:50.742069731Z",
+  "scan_duration_ms": 7
 }

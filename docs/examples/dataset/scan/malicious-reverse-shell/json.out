@@ -76,6 +76,6 @@
   "scanned_files": [
     "tests/fixtures/malicious/reverse-shell/PKGBUILD"
   ],
-  "timestamp": "2026-06-15T12:46:42.696451808Z",
+  "timestamp": "2026-06-15T13:33:50.887051183Z",
   "scan_duration_ms": 5
 }

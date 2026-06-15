@@ -190,6 +190,6 @@
   "scanned_files": [
     "tests/fixtures/malicious/cryptominer/PKGBUILD"
   ],
-  "timestamp": "2026-06-15T12:46:41.850689292Z",
+  "timestamp": "2026-06-15T13:33:50.018115770Z",
   "scan_duration_ms": 6
 }

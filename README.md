@@ -109,6 +109,7 @@ This scanner implements detection rules based on real-world attacks and security
 | **Source Verification** | Validates URLs, checksums, and download sources |
 | **AUR Integration** | Fetch and scan packages directly from AUR before installation |
 | **System Audit** | Scan all installed AUR packages in a single command |
+| **Threat Intelligence** _(opt-in)_ | Optional VirusTotal hash & URLhaus URL reputation checks — **off by default**, bring-your-own-key, public hashes/URLs only |
 | **Multiple Output Formats** | Human-readable, JSON, and SARIF for CI/CD integration |
 | **Shell Integration** | Seamless wrapper for yay, paru, and other AUR helpers |
 | **Pacman Hook** | System-wide enforcement during package transactions |
@@ -608,6 +609,8 @@ NeedsTargets
 | `TAMPER-002` | doas/sudoers nopasswd grant | Privilege Escalation | rules | CWE-269 |
 | `TAMPER-005` | PAM tampering | Privilege Escalation | rules | CWE-287 |
 | `TAMPER-011` | pacman signature downgrade | Malicious Code | rules | CWE-347 |
+| `TI-VT-001` | VirusTotal flags a source artifact | Malicious Code | threat_intel _(opt-in)_ | CWE-506 |
+| `TI-URLHAUS-001` | URLhaus lists a source URL | Malicious Code | threat_intel _(opt-in)_ | CWE-494 |
 
 ## HIGH severity
 
@@ -807,6 +810,17 @@ min_severity = "low"
 # Scan timeout in seconds
 timeout_seconds = 30
 
+# Opt-in threat intelligence — OFF by default (see "Threat Intelligence" below)
+enable_threat_intel = false
+
+[threat_intel]
+# VirusTotal API key (or env VT_API_KEY / VIRUSTOTAL_API_KEY)
+# virustotal_api_key = "..."
+urlhaus_enabled = false
+# URLhaus Auth-Key — now mandatory at abuse.ch (or env URLHAUS_AUTH_KEY)
+# urlhaus_auth_key = "..."
+cache_duration_hours = 24
+
 # Cache settings
 [cache]
 enabled = true
@@ -814,6 +828,35 @@ directory = "/var/cache/aur-scanner"
 max_size_mb = 100
 ttl_hours = 24
 ```
+
+### Threat Intelligence (opt-in)
+
+By default aur-scan is fully offline and static. You can optionally cross-check a
+package against external reputation services — it is **off unless you turn it on**,
+and only data already public in the PKGBUILD is ever sent.
+
+Enable it with `enable_threat_intel = true` and supply at least one provider key:
+
+- **VirusTotal** — `virustotal_api_key` in config, or `VT_API_KEY` /
+  `VIRUSTOTAL_API_KEY` in the environment. Checks each declared `sha256sums`
+  entry and emits `TI-VT-001` when engines flag the hash.
+- **URLhaus** — set `urlhaus_enabled = true` and supply `urlhaus_auth_key` (or
+  `URLHAUS_AUTH_KEY`); abuse.ch now requires a free Auth-Key from
+  <https://auth.abuse.ch/>. Checks each `source=` URL and emits `TI-URLHAUS-001`.
+
+Guarantees:
+
+- **Off by default, bring-your-own-key** — no key, no lookups, no egress.
+- **Least disclosure** — only public source hashes and URLs leave your machine;
+  never file contents or anything about you.
+- **Fail-open** — a provider error, quota limit, or outage never fails or blocks
+  a scan.
+- **Auditable egress** — every external call lives in one file
+  (`crates/aur-scanner-core/src/threat_intel/remote.rs`): HTTPS-only,
+  no-redirect, time-bounded.
+- **Cached & capped** — verdicts are cached (authenticated `DiskCache`) and
+  lookups are bounded per scan to respect VirusTotal's 4-request/minute public
+  API quota.
 
 ---
 

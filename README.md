@@ -1173,8 +1173,16 @@ This project was created to address a critical gap in the Arch Linux security ec
 
 Built by the community, not just us. Thank you:
 
-- [**@Disklo** (Rafael Lucio)](https://github.com/Disklo) — fixed a false-negative in `aur-scan check` and added the fish shell integration (1.0.3)
-- [**@SuitablyMysterious**](https://github.com/SuitablyMysterious) — contributed the VirusTotal hash-lookup reference implementation (`vt_lookup`, [PR #9](https://github.com/KiefStudioMA/ks-aur-scanner/pull/9)) that the opt-in threat-intelligence integration is built on (1.2.0-rc1)
+- [**@Disklo** (Rafael Lucio)](https://github.com/Disklo) — fixed a false-negative in `aur-scan check` and added the fish shell integration ([#4](https://github.com/KiefStudioMA/ks-aur-scanner/pull/4), 1.0.3)
+- [**@SuitablyMysterious**](https://github.com/SuitablyMysterious) — contributed the June 2026 "Atomic Arch" malware package list now in the IOC database ([#3](https://github.com/KiefStudioMA/ks-aur-scanner/pull/3)), and the VirusTotal hash-lookup reference (`vt_lookup`, [#9](https://github.com/KiefStudioMA/ks-aur-scanner/pull/9)) the opt-in threat-intelligence integration is built on
+
+Some of the above were brought in by cherry-pick rather than the merge button — the work landed and the credit stands the same.
+
+**Issue reports that shaped releases:**
+
+- [**@LunarEclipse363**](https://github.com/LunarEclipse363) — [#2](https://github.com/KiefStudioMA/ks-aur-scanner/issues/2): detecting third-party package-manager calls in install hooks, which shaped the install-hook detection (`ATOMIC-002`)
+- [**@zebulon2**](https://github.com/zebulon2) — [#10](https://github.com/KiefStudioMA/ks-aur-scanner/issues/10): reported the obfuscated `bun install` payload class the anti-evasion hardening targets
+- [**@nikoraasu**](https://github.com/nikoraasu) — [#12](https://github.com/KiefStudioMA/ks-aur-scanner/issues/12): diagnosed that the shell wrapper only gated `-S`-style operations, shaping the operation classifier and broader AUR-helper coverage
 
 Sent a PR? Add yourself here. See the full list on the [contributors page](https://github.com/KiefStudioMA/ks-aur-scanner/graphs/contributors).
 

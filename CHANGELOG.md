@@ -4,6 +4,59 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] - 2026-06-17
+
+Major release: optional, opt-in threat-intelligence lookups (VirusTotal +
+URLhaus), an active verdict cache, broader AUR-helper coverage (cache discovery
++ shell wrappers + a Nushell integration), and a global `--no-color` flag. The
+default scan is unchanged — fully offline and static; threat intelligence stays
+off until you enable it and supply your own keys.
+
+### Added — opt-in threat intelligence
+
+- **VirusTotal & URLhaus lookups, wired in for real.** The previously inert
+  provider stubs are now working: with `enable_threat_intel` set and a key
+  supplied (config or `VT_API_KEY`/`VIRUSTOTAL_API_KEY`/`URLHAUS_AUTH_KEY`), a new
+  networked analyzer checks each declared `sha256sums` against VirusTotal and each
+  `source=` URL against abuse.ch/URLhaus, emitting `TI-VT-001` / `TI-URLHAUS-001`
+  on a malicious verdict. **Off by default** — a default scan stays fully
+  offline/static. Only data already public in the PKGBUILD (hashes, source URLs)
+  is ever transmitted; every lookup fails open so a provider outage never blocks a
+  scan. All third-party network code is isolated in a single auditable file
+  (`threat_intel/remote.rs`). URLhaus requires the now-mandatory abuse.ch
+  `Auth-Key`.
+
+  The VirusTotal-by-hash approach is credited to **@SuitablyMysterious**, whose
+  `vt_lookup` in [PR #9](https://github.com/KiefStudioMA/ks-aur-scanner/pull/9)
+  was the reference implementation.
+
+- **Verdict caching is now active.** The hardened, MAC-authenticated `DiskCache`
+  (owner-only dir, per-user keyed integrity) — previously built but unwired — now
+  caches threat-intel verdicts, so repeat lookups respect VirusTotal's 4-req/min
+  public quota. Gated by `CacheConfig`; lookups are also capped per scan.
+
+### Added — broader AUR helper coverage
+
+- **`system` audit and the pacman hook now cover every maintained AUR helper.**
+  Cache discovery spans yay, paru, pikaur, aura, pakku, trizen, aurutils, rua, and
+  pat-aur — at each helper's real PKGBUILD location (e.g. pikaur's
+  `~/.local/share/pikaur/aur_repos`, rua's `~/.config/rua/pkg`, trizen's
+  `~/.cache/trizen/sources`), with XDG `*_HOME` overrides honored.
+- **Shell integration wraps more helpers** ([#6](https://github.com/KiefStudioMA/ks-aur-scanner/issues/6); diagnosis from [@nikoraasu](https://github.com/nikoraasu) in [#12](https://github.com/KiefStudioMA/ks-aur-scanner/issues/12)).
+  `pikaur`, `trizen`, and `pakku` join `paru`/`yay` as pre-build gates (they share
+  pacman's `-S`/`-Syu` grammar); helpers with a different model (`aura -A`, and the
+  subcommand tools aurutils/rua/pat-aur) are covered by the pacman hook instead.
+- **Nushell integration** (`install/integration.nu`, [#5](https://github.com/KiefStudioMA/ks-aur-scanner/issues/5)) — routes
+  helper installs through the `aur-scan-wrap` gate; honors `AUR_SCAN_ENABLED=0` and
+  provides `<helper>-unsafe` bypasses. Verified on nushell 0.113.
+- **pacman hook** now sets `NeedsTargets`, so the transaction's package names reach
+  the hook (it reads targets from stdin to locate each PKGBUILD).
+
+### Changed
+
+- Added a global `--no-color` flag; colored output also honors the `NO_COLOR`
+  environment variable and auto-disables when not writing to a terminal.
+
 ## [1.1.0] - 2026-06-15
 
 Stable promotion of the 1.1.0 release-candidate line, plus a second hardening
@@ -218,4 +271,5 @@ automation, and the validation checklist in the PR before promoting to stable.
 
 See the project history prior to the introduction of this changelog.
 
+[2.0.0]: https://github.com/KiefStudioMA/ks-aur-scanner/releases/tag/v2.0.0
 [1.1.0-rc1]: https://github.com/KiefStudioMA/ks-aur-scanner/releases/tag/v1.1.0-rc1

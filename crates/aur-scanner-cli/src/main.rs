@@ -5,12 +5,12 @@
 mod commands;
 mod output;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
-use aur_scanner_core::Severity;
+use aur_scanner_core::{ScanConfig, Severity};
 
 #[derive(Parser)]
 #[command(name = "aur-scan")]
@@ -36,6 +36,10 @@ struct Cli {
     /// Quiet mode (only show findings)
     #[arg(short, long, global = true)]
     quiet: bool,
+
+    /// Disable colored output (also honored: the NO_COLOR environment variable)
+    #[arg(long, global = true)]
+    no_color: bool,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -212,6 +216,14 @@ enum OutputFormat {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Color: the `colored` crate already auto-disables on a non-terminal and
+    // honors NO_COLOR/CLICOLOR_FORCE. Force it off explicitly when `--no-color`
+    // is given or NO_COLOR is set, so the switch is deterministic regardless of
+    // where output goes.
+    if cli.no_color || std::env::var_os("NO_COLOR").is_some() {
+        colored::control::set_override(false);
+    }
+
     // Initialize logging - default to warn to keep output clean
     let filter = if cli.verbose {
         "aur_scanner=debug,aur_scanner_core=debug"
@@ -229,6 +241,17 @@ async fn main() -> Result<()> {
         .without_time()
         .init();
 
+    // Load the optional -c/--config file once. A present-but-unreadable or
+    // malformed config is a hard error rather than being silently ignored, so
+    // the flag can never appear to work while doing nothing.
+    let file_config: Option<ScanConfig> = match cli.config.as_ref() {
+        Some(path) => Some(
+            ScanConfig::from_toml_file(path)
+                .with_context(|| format!("failed to load config file {}", path.display()))?,
+        ),
+        None => None,
+    };
+
     match cli.command {
         Commands::Scan {
             path,
@@ -244,6 +267,8 @@ async fn main() -> Result<()> {
                 fail_on.map(Into::into),
                 cli.severity.map(Into::into),
                 include_info,
+                cli.quiet,
+                file_config.unwrap_or_default(),
             )
             .await
         }
@@ -291,13 +316,25 @@ async fn main() -> Result<()> {
             .await
         }
         Commands::System { rescan, cache_dir } => {
-            commands::system::run(cli.severity.map(Into::into), rescan, cache_dir).await
+            commands::system::run(
+                cli.severity.map(Into::into),
+                rescan,
+                cache_dir,
+                file_config.unwrap_or_default(),
+            )
+            .await
         }
         Commands::Rules { severity, details } => {
             commands::rules::run(severity.map(Into::into), details)
         }
         Commands::Explain { code } => commands::explain::run(&code),
-        Commands::Codes { category, format } => commands::codes::run(category.as_deref(), &format),
+        Commands::Codes { category, format } => {
+            // Honor a config-supplied custom rules dir so `codes` lists rules the
+            // scan engine would actually load.
+            let extra_dirs: Vec<PathBuf> =
+                file_config.and_then(|c| c.rules_path).into_iter().collect();
+            commands::codes::run(category.as_deref(), &format, &extra_dirs)
+        }
         Commands::Ioc { check } => commands::ioc::run(check.as_deref()),
         Commands::Version => {
             commands::version::run();

@@ -63,6 +63,12 @@ impl Catalog {
     /// Build the catalog from built-in pattern rules, analyzer codes, and any
     /// community rule files found in the standard directories.
     pub fn load() -> Self {
+        Self::load_with(&[])
+    }
+
+    /// Like [`load`](Self::load) but also scans `extra_dirs` (e.g. a config's
+    /// `rules_path`) so the listing matches what the scan engine actually loads.
+    pub fn load_with(extra_dirs: &[std::path::PathBuf]) -> Self {
         let mut entries: Vec<CatalogEntry> = Vec::new();
 
         // 1. Built-in pattern rules.
@@ -71,9 +77,12 @@ impl Catalog {
         }
         // 2. Analyzer-owned codes (logic in Rust, metadata here).
         entries.extend(analyzer_codes());
-        // 3. Community rule files.
+        // 3. Community rule files (standard dirs + any caller-supplied extras).
         let loader = RuleLoader::new();
-        for dir in user_rule_dirs() {
+        for dir in user_rule_dirs()
+            .into_iter()
+            .chain(extra_dirs.iter().cloned())
+        {
             if dir.is_dir() {
                 if let Ok(rules) = loader.load_from_directory(&dir) {
                     for rule in rules {
@@ -216,6 +225,11 @@ pub fn analyzer_codes() -> Vec<CatalogEntry> {
         // -- remote_exec analyzer --
         e("EXEC-REMOTE", "Fetches and runs external code", Critical, MaliciousCode, "remote_exec", Some("CWE-494"),
           "The package downloads and executes code from an external URL at build/install time; the scanner does not follow it (opaque boundary).", "Do not build; obtain software that ships its real code."),
+        // -- threat_intel analyzer (opt-in, networked) --
+        e("TI-VT-001", "VirusTotal flags a source artifact", Critical, MaliciousCode, "threat_intel", Some("CWE-506"),
+          "An opt-in VirusTotal lookup reports engines detecting the declared sha256 of a source artifact as malicious.", "Do not build or install; review the VirusTotal report for this hash."),
+        e("TI-URLHAUS-001", "URLhaus lists a source URL", Critical, MaliciousCode, "threat_intel", Some("CWE-494"),
+          "An opt-in abuse.ch/URLhaus lookup lists a source= URL as a known malware/payload distribution URL.", "Do not build or install; the source URL is a known-bad distribution point."),
         // -- provenance --
         e("PROV-001", "Package gained risky behavior", High, SuspiciousMetadata, "provenance", Some("CWE-506"),
           "The package introduced fetch/execute behavior it did not have at the previous scan.", "Review the PKGBUILD/install diff before building."),
@@ -296,6 +310,8 @@ mod tests {
             "DEEP-001",
             "DEEP-002",
             "EXEC-REMOTE",
+            "TI-VT-001",
+            "TI-URLHAUS-001",
             "PROV-001",
             "FUNC-001",
             "META-002",

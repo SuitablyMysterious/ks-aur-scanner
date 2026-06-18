@@ -443,6 +443,7 @@ mod tests {
         assert!(scanned(&["-Q"]).is_none());
         assert!(scanned(&["-R", "firefox"]).is_none()); // remove
         assert!(scanned(&["-Syu"]).is_none()); // upgrade, no operands
+
         // yay/paru AUR extensions that only read: must not gate even with an
         // operand (a malicious PKGBUILD fetched by -G is reviewed, not built).
         assert!(scanned(&["-G", "firefox"]).is_none()); // getpkgbuild (download only)

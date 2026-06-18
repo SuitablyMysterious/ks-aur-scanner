@@ -5,7 +5,7 @@ use colored::Colorize;
 use std::path::PathBuf;
 
 use aur_scanner_core::aur::{get_installed_aur_packages, AurClient};
-use aur_scanner_core::{Scanner, Severity};
+use aur_scanner_core::{ScanConfig, Scanner, Severity};
 
 use super::banner;
 
@@ -14,6 +14,7 @@ pub async fn run(
     min_severity: Option<Severity>,
     rescan: bool,
     cache_dir: Option<PathBuf>,
+    config: ScanConfig,
 ) -> Result<()> {
     banner::print_header("System Audit");
     println!();
@@ -75,7 +76,11 @@ pub async fn run(
     // Determine where to find PKGBUILDs
     let cache_dirs = get_aur_cache_dirs(cache_dir);
 
-    let scanner = Scanner::with_defaults().context("Failed to create scanner")?;
+    // Build the scanner from the loaded config so a `-c/--config` passed to the
+    // system audit applies here too (enable_threat_intel, rules_path, cache) --
+    // not just to `scan`/`codes`. With no `-c`, this is an empty default config,
+    // identical to the previous `Scanner::with_defaults()` behavior.
+    let scanner = Scanner::new(config).context("Failed to create scanner")?;
     let mut prov_store = aur_scanner_core::provenance::ProvenanceStore::load(
         aur_scanner_core::provenance::ProvenanceStore::default_path(),
     );
@@ -275,16 +280,23 @@ fn get_aur_cache_dirs(custom: Option<PathBuf>) -> Vec<PathBuf> {
         dirs.push(custom_dir);
     }
 
-    // Common cache locations
-    if let Some(home) = dirs::home_dir() {
-        // Paru
-        dirs.push(home.join(".cache/paru/clone"));
-        // Yay
-        dirs.push(home.join(".cache/yay"));
-        // Trizen
-        dirs.push(home.join(".cache/trizen"));
-        // Aurutils
-        dirs.push(home.join(".cache/aurutils/sync"));
+    // Default per-helper clone/build locations for maintained AUR helpers.
+    // Resolved through the XDG base dirs so a user's XDG_CACHE_HOME /
+    // XDG_DATA_HOME / XDG_CONFIG_HOME overrides are honored.
+    if let Some(cache) = dirs::cache_dir() {
+        dirs.push(cache.join("yay")); // yay
+        dirs.push(cache.join("paru/clone")); // paru
+        dirs.push(cache.join("aura/packages")); // aura
+        dirs.push(cache.join("pakku")); // pakku
+        dirs.push(cache.join("trizen/sources")); // trizen
+        dirs.push(cache.join("aurutils/sync")); // aurutils
+        dirs.push(cache.join("pat-aur/pkgbuild/aur")); // pat-aur
+    }
+    if let Some(data) = dirs::data_dir() {
+        dirs.push(data.join("pikaur/aur_repos")); // pikaur (data dir, not cache)
+    }
+    if let Some(config) = dirs::config_dir() {
+        dirs.push(config.join("rua/pkg")); // rua (config dir, not cache)
     }
 
     // Filter to existing directories

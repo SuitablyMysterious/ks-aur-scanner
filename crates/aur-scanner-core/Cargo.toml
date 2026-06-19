@@ -40,6 +40,6 @@ tempfile = "3.14"
 url = "2.5"
 
 # For ELF/binary analysis in the BinaryPayloadAnalyzer.
-goblin = "0.10"
+goblin = "0.10.7"
 
 [dev-dependencies]
